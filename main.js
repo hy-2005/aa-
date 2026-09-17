@@ -167,6 +167,12 @@ class ApplicationController {
     this._utteranceDispatchInFlight = false;
     this._utteranceCoalesceMs = 800;
 
+    // Multi-screenshot queue: Ctrl+Shift+S accumulates up to MAX captures
+    // (long problems split across several screenshots), Ctrl+Shift+D sends
+    // them all to the LLM in one request, Ctrl+Shift+X clears the queue.
+    this.screenshotQueue = [];
+    this.SCREENSHOT_QUEUE_MAX = 10;
+
     // First-run onboarding: detects missing .env / API key and triggers
     // a settings-window prompt on first launch so users don't have to
     // dig through docs to figure out they need a Gemini API key.
@@ -446,7 +452,9 @@ class ApplicationController {
 
   setupGlobalShortcuts() {
     const shortcuts = {
-      "CommandOrControl+Shift+S": () => this.triggerScreenshotOCR(),
+      "CommandOrControl+Shift+S": () => this.captureScreenshotOnly(),
+      "CommandOrControl+Shift+D": () => this.sendQueuedScreenshots(),
+      "CommandOrControl+Shift+X": () => this.clearScreenshotQueue(),
       "CommandOrControl+Shift+V": () => windowManager.toggleVisibility(),
       "CommandOrControl+Shift+I": () => windowManager.toggleInteraction(),
       "CommandOrControl+Shift+C": () => windowManager.switchToWindow("chat"),
@@ -454,6 +462,9 @@ class ApplicationController {
       "CommandOrControl+,": () => windowManager.showSettings(),
       "Alt+A": () => windowManager.toggleInteraction(),
       "Alt+R": () => this.toggleSpeechRecognition(),
+      // Overlay transparency: Alt+= more opaque, Alt+- more transparent
+      "Alt+=": () => windowManager.setOverlayOpacity(0.1),
+      "Alt+-": () => windowManager.setOverlayOpacity(-0.1),
       "CommandOrControl+Shift+T": () => windowManager.forceAlwaysOnTopForAllWindows(),
       "CommandOrControl+Shift+Alt+T": () => {
         const results = windowManager.testAlwaysOnTopForAllWindows();
@@ -512,7 +523,7 @@ class ApplicationController {
   }
 
   setupIPCHandlers() {
-  ipcMain.handle("take-screenshot", () => this.triggerScreenshotOCR());
+  ipcMain.handle("take-screenshot", () => this.captureScreenshotOnly());
   ipcMain.handle("list-displays", () => captureService.listDisplays());
   ipcMain.handle("capture-area", (event, options) => captureService.captureAndProcess(options));
     
@@ -1121,41 +1132,103 @@ class ApplicationController {
     windowManager.broadcastToAllWindows("skill-updated", { skill: newSkill });
   }
 
-  async triggerScreenshotOCR() {
+  /**
+   * Ctrl+Shift+S — capture the screen and ADD it to the screenshot queue
+   * (up to SCREENSHOT_QUEUE_MAX). Nothing is sent to the LLM yet; thumbnails
+   * are broadcast so the response window can show the user what's queued.
+   */
+  async captureScreenshotOnly() {
     if (!this.isReady) {
       logger.warn("Screenshot requested before application ready");
       return;
     }
+    if (this.screenshotQueue.length >= this.SCREENSHOT_QUEUE_MAX) {
+      windowManager.broadcastToAllWindows("screenshot-queue-full", {
+        max: this.SCREENSHOT_QUEUE_MAX
+      });
+      logger.warn("Screenshot queue full", { max: this.SCREENSHOT_QUEUE_MAX });
+      return;
+    }
+    try {
+      const capture = await captureService.captureAndProcess();
+      if (!capture.imageBuffer || !capture.imageBuffer.length) {
+        this.broadcastOCRError("截图失败：未能获取屏幕图像");
+        return;
+      }
+      const { nativeImage } = require("electron");
+      const thumb = nativeImage
+        .createFromBuffer(capture.imageBuffer)
+        .resize({ width: 320 });
+      const item = {
+        id: `shot-${Date.now()}-${(this._responseSeq = (this._responseSeq || 0) + 1)}`,
+        imageBuffer: capture.imageBuffer,
+        mimeType: capture.mimeType || "image/png",
+        thumbDataUrl: thumb.toDataURL(),
+        timestamp: new Date().toISOString()
+      };
+      this.screenshotQueue.push(item);
+      logger.info("Screenshot queued", {
+        count: this.screenshotQueue.length,
+        bytes: capture.imageBuffer.length
+      });
+      windowManager.broadcastToAllWindows("screenshot-queued", {
+        id: item.id,
+        thumb: item.thumbDataUrl,
+        count: this.screenshotQueue.length,
+        max: this.SCREENSHOT_QUEUE_MAX
+      });
+      windowManager.showScreenshotQueue();
+    } catch (error) {
+      logger.error("Screenshot capture failed", { error: error.message });
+      this.broadcastOCRError(`截图失败：${error.message}`);
+    }
+  }
 
+  /** Ctrl+Shift+X — discard all queued screenshots. */
+  clearScreenshotQueue() {
+    if (this.screenshotQueue.length === 0) return;
+    const count = this.screenshotQueue.length;
+    this.screenshotQueue = [];
+    windowManager.broadcastToAllWindows("screenshot-queue-cleared", { count });
+    logger.info("Screenshot queue cleared", { count });
+  }
+
+  /**
+   * Ctrl+Shift+D — send ALL queued screenshots to the LLM in one request.
+   * Long problems that don't fit in a single capture get stitched together
+   * by the model. On failure the captures are put back in the queue so a
+   * network blip doesn't lose them.
+   */
+  async sendQueuedScreenshots() {
+    if (!this.isReady) {
+      logger.warn("Send queued screenshots requested before application ready");
+      return;
+    }
+    if (this.screenshotQueue.length === 0) {
+      windowManager.broadcastToAllWindows("screenshot-queue-empty", {});
+      return;
+    }
+    const items = this.screenshotQueue;
+    this.screenshotQueue = [];
     const startTime = Date.now();
 
     try {
       windowManager.showLLMLoading();
+      windowManager.broadcastToAllWindows("screenshot-queue-sending", {
+        count: items.length
+      });
 
-  const capture = await captureService.captureAndProcess();
-
-      if (!capture.imageBuffer || !capture.imageBuffer.length) {
-        windowManager.hideLLMResponse();
-        this.broadcastOCRError("Failed to capture screenshot image");
-        return;
-      }
-
-      // Use image directly with LLM and active skill; do not send chat messages here
       const sessionHistory = sessionManager.getOptimizedHistory();
+      const needsProgrammingLanguage = ['dsa'].includes(this.activeSkill);
 
-      const skillsRequiringProgrammingLanguage = ['dsa'];
-      const needsProgrammingLanguage = skillsRequiringProgrammingLanguage.includes(this.activeSkill);
-
-      this._responseSeq = (this._responseSeq || 0) + 1;
-      const messageId = `img-${Date.now()}-${this._responseSeq}`;
+      const messageId = `imgs-${Date.now()}-${(this._responseSeq = (this._responseSeq || 0) + 1)}`;
       windowManager.broadcastToAllWindows("transcription-llm-response-start", {
         messageId,
         skill: this.activeSkill
       });
 
-      const llmResult = await llmService.processImageWithSkillStream(
-        capture.imageBuffer,
-        capture.mimeType || 'image/png',
+      const llmResult = await llmService.processImagesWithSkillStream(
+        items.map((i) => ({ imageBuffer: i.imageBuffer, mimeType: i.mimeType })),
         this.activeSkill,
         sessionHistory.recent,
         needsProgrammingLanguage ? this.codingLanguage : null,
@@ -1166,39 +1239,46 @@ class ApplicationController {
           });
         }
       );
-      llmResult.metadata = { ...llmResult.metadata, messageId };
+      llmResult.metadata = { ...llmResult.metadata, messageId, imageCount: items.length };
 
       sessionManager.addModelResponse(llmResult.response, {
         skill: this.activeSkill,
         processingTime: llmResult.metadata.processingTime,
         usedFallback: llmResult.metadata.usedFallback,
-        isImageAnalysis: true
+        isImageAnalysis: true,
+        imageCount: items.length
       });
 
       this.broadcastTranscriptionLLMResponse(llmResult);
-
       windowManager.showLLMResponse(llmResult.response, {
         skill: this.activeSkill,
         processingTime: llmResult.metadata.processingTime,
         usedFallback: llmResult.metadata.usedFallback,
         isImageAnalysis: true
       });
-    } catch (error) {
-      logger.error("Screenshot OCR process failed", {
-        error: error.message,
-        duration: Date.now() - startTime,
+      logger.info("Queued screenshots analyzed", {
+        imageCount: items.length,
+        duration: Date.now() - startTime
       });
-
+    } catch (error) {
+      // Put the captures back so the user can just press Ctrl+Shift+D again
+      // after fixing whatever went wrong (network, quota, …).
+      this.screenshotQueue = items.concat(this.screenshotQueue).slice(0, this.SCREENSHOT_QUEUE_MAX);
+      windowManager.broadcastToAllWindows("screenshot-queue-restored", {
+        count: this.screenshotQueue.length
+      });
+      logger.error("Queued screenshot analysis failed", {
+        error: error.message,
+        imageCount: items.length,
+        duration: Date.now() - startTime
+      });
       windowManager.hideLLMResponse();
       this.broadcastOCRError(error.message);
-      
       sessionManager.addConversationEvent({
         role: 'system',
-        content: `Screenshot OCR failed: ${error.message}`,
+        content: `Multi-screenshot analysis failed: ${error.message}`,
         action: 'ocr_error',
-        metadata: {
-          error: error.message
-        }
+        metadata: { error: error.message, imageCount: items.length }
       });
     }
   }

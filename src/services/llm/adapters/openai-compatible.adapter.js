@@ -173,6 +173,103 @@ class OpenAICompatibleAdapter {
     }
   }
 
+  // ── Multi-image: all queued captures in ONE request ──
+
+  _buildMultiImageMessages({ images, prompt, activeSkill, sessionMemory, programmingLanguage }) {
+    const messages = [];
+    const skillPrompt = promptLoader.getSkillPrompt(activeSkill, programmingLanguage);
+    if (skillPrompt && skillPrompt.trim()) {
+      messages.push({ role: 'system', content: skillPrompt });
+    }
+    if (Array.isArray(sessionMemory)) {
+      for (const m of sessionMemory) {
+        if (m && m.role && m.content && (m.role === 'user' || m.role === 'assistant')) {
+          messages.push({ role: m.role, content: m.content });
+        }
+      }
+    }
+    const parts = [{
+      type: 'text',
+      text: prompt || `这里有 ${images.length} 张连续截图，共同组成同一道题。请综合所有截图内容还原完整题目，然后用中文给出完整分析与解答。`
+    }];
+    for (const img of images) {
+      parts.push({
+        type: 'image_url',
+        image_url: { url: `data:${img.mimeType || 'image/png'};base64,${img.imageBuffer.toString('base64')}` }
+      });
+    }
+    messages.push({ role: 'user', content: parts });
+    return messages;
+  }
+
+  async processImages(images, { activeSkill, sessionMemory = [], programmingLanguage = null, prompt = null } = {}) {
+    this._assertReady();
+    const start = Date.now();
+    this.requestCount++;
+    try {
+      const messages = this._buildMultiImageMessages({ images, prompt, activeSkill, sessionMemory, programmingLanguage });
+      const resp = await this.client.chat.completions.create({
+        model: this.model,
+        messages,
+        temperature: 0.7,
+        max_tokens: 4096
+      });
+      const response = this._stripThinking(resp.choices?.[0]?.message?.content || '').trim();
+      return {
+        response,
+        metadata: {
+          skill: activeSkill, programmingLanguage,
+          processingTime: Date.now() - start, requestId: this.requestCount,
+          usedFallback: false, isImageAnalysis: true, imageCount: images.length, provider: this.id
+        }
+      };
+    } catch (e) {
+      this.errorCount++;
+      throw e;
+    }
+  }
+
+  async processImagesStream(images, { activeSkill, sessionMemory = [], programmingLanguage = null, prompt = null } = {}, onDelta = null) {
+    this._assertReady();
+    const start = Date.now();
+    this.requestCount++;
+    try {
+      const messages = this._buildMultiImageMessages({ images, prompt, activeSkill, sessionMemory, programmingLanguage });
+      const stream = await this.client.chat.completions.create({
+        model: this.model,
+        messages,
+        temperature: 0.7,
+        max_tokens: 4096,
+        stream: true
+      });
+      let fullText = '';
+      let emitted = '';
+      for await (const chunk of stream) {
+        const delta = chunk.choices?.[0]?.delta?.content || '';
+        if (delta) {
+          fullText += delta;
+          const stripped = this._stripThinking(fullText);
+          if (stripped.length > emitted.length && stripped.startsWith(emitted)) {
+            onDelta && onDelta(stripped.slice(emitted.length));
+            emitted = stripped;
+          }
+        }
+      }
+      return {
+        response: emitted.trim(),
+        metadata: {
+          skill: activeSkill, programmingLanguage,
+          processingTime: Date.now() - start, requestId: this.requestCount,
+          usedFallback: false, streamed: true, isImageAnalysis: true, imageCount: images.length, provider: this.id
+        }
+      };
+    } catch (e) {
+      this.errorCount++;
+      logger.warn('OpenAI-compatible multi-image streaming failed, falling back to non-streaming', { error: e.message });
+      return this.processImages(images, { activeSkill, sessionMemory, programmingLanguage, prompt });
+    }
+  }
+
   // Vision via image_url data URLs. Many compatible providers support this
   // (MiniMax-M3, Qwen-VL, GLM-4V, …). Providers that don't will surface a
   // normal API error, which flows to the UI error path.

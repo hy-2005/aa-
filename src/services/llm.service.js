@@ -50,6 +50,14 @@ class LLMService {
     return this._delegate('processImageStream', [opts, onDelta]);
   }
 
+  async processImages(images, opts) {
+    return this._delegate('processImages', [images, opts]);
+  }
+
+  async processImagesStream(images, opts, onDelta) {
+    return this._delegate('processImagesStream', [images, opts, onDelta]);
+  }
+
   async testConnection() {
     const a = router.getActive();
     if (!a) {
@@ -86,6 +94,12 @@ class LLMService {
 
   async processImageWithSkillStream(imageBuffer, mimeType, activeSkill, sessionMemory = [], programmingLanguage = null, onDelta = null) {
     return this.processImageStream({ imageBuffer, mimeType, activeSkill, sessionMemory, programmingLanguage }, onDelta);
+  }
+
+  // Multi-image variant: images = [{ imageBuffer, mimeType }, …] — all
+  // captures are sent in ONE request so the model sees the whole problem.
+  async processImagesWithSkillStream(images, activeSkill, sessionMemory = [], programmingLanguage = null, onDelta = null) {
+    return this.processImagesStream(images, { activeSkill, sessionMemory, programmingLanguage }, onDelta);
   }
 
   async processTranscriptionWithIntelligentResponse(text, activeSkill, sessionMemory = [], programmingLanguage = null) {

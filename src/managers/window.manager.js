@@ -18,6 +18,8 @@ class WindowManager {
     this.isInitialized = false;
     this.isInitializing = false;
     this.isRecording = false;
+    // Overlay opacity for Alt+= / Alt+- hotkeys (main / chat / llmResponse)
+    this.overlayOpacity = 1.0;
     
     // Add debouncing to prevent excessive operations
     this.lastEnforceTime = 0;
@@ -44,8 +46,8 @@ class WindowManager {
         title: 'Chat'
       },
       llmResponse: {
-        width: 840,
-        height: 480,
+        width: 960,
+        height: 520,
         file: 'llm-response.html',
         title: 'AI Response',
         alwaysOnTop: true
@@ -1293,6 +1295,40 @@ class WindowManager {
     const llmWindow = this.windows.get('llmResponse');
     if (llmWindow) {
       llmWindow.hide();
+    }
+  }
+
+  /**
+   * Step overlay-window opacity for the Alt+= / Alt+- shortcuts.
+   * Applies to the stealth overlay windows only (main / chat / llmResponse);
+   * framed dialogs (settings / onboarding) keep full opacity.
+   */
+  setOverlayOpacity(delta) {
+    const MIN = 0.15;
+    const MAX = 1.0;
+    const next = Math.min(MAX, Math.max(MIN, Math.round((this.overlayOpacity + delta) * 100) / 100));
+    if (next === this.overlayOpacity) return this.overlayOpacity;
+    this.overlayOpacity = next;
+    ['main', 'chat', 'llmResponse'].forEach((type) => {
+      const win = this.windows.get(type);
+      if (win && !win.isDestroyed()) {
+        try { win.setOpacity(this.overlayOpacity); } catch (_) { /* ignore */ }
+      }
+    });
+    logger.info('Overlay opacity changed', { opacity: this.overlayOpacity });
+    return this.overlayOpacity;
+  }
+
+  /**
+   * Show the LLM response window in "screenshot queue" mode — the window
+   * renders queued-shot thumbnails from broadcast events, so all this does
+   * is make sure it's visible. New windows default to full opacity.
+   */
+  showScreenshotQueue() {
+    const win = this.windows.get('llmResponse');
+    if (win && !win.isDestroyed()) {
+      this.showOnCurrentDesktop(win);
+      win.setOpacity(Math.max(this.overlayOpacity, 0.6));
     }
   }
 

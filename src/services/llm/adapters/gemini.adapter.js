@@ -241,6 +241,46 @@ class GeminiAdapter {
     }
   }
 
+  // ── Multi-image: all queued captures in ONE request (Ctrl+Shift+D) ──
+
+  async processImagesStream(images, { activeSkill, sessionMemory = [], programmingLanguage = null, prompt = null } = {}, onDelta = null) {
+    this._assertReady();
+    const start = Date.now();
+    this.requestCount++;
+    try {
+      const skillPrompt = promptLoader.getSkillPrompt(activeSkill, programmingLanguage) || '';
+      const textPart = {
+        text: prompt || `这里有 ${images.length} 张连续截图，共同组成同一道题。请综合所有截图内容还原完整题目，然后用中文给出完整分析与解答。`
+      };
+      const imageParts = images.map((img) => ({
+        inlineData: { data: img.imageBuffer.toString('base64'), mimeType: img.mimeType || 'image/png' }
+      }));
+      const geminiRequest = {
+        contents: [{ role: 'user', parts: [textPart, ...imageParts] }]
+      };
+      this.applyGenerationDefaults(geminiRequest);
+      if (skillPrompt && skillPrompt.trim()) geminiRequest.systemInstruction = { parts: [{ text: skillPrompt }] };
+
+      const fullText = await this.executeStreamingRequest(geminiRequest, (delta) => {
+        if (typeof onDelta === 'function' && delta) onDelta(delta);
+      });
+      const finalResponse = programmingLanguage
+        ? this.enforceProgrammingLanguage(fullText, programmingLanguage)
+        : fullText;
+      return {
+        response: finalResponse,
+        metadata: {
+          skill: activeSkill, programmingLanguage,
+          processingTime: Date.now() - start, requestId: this.requestCount,
+          usedFallback: false, streamed: true, isImageAnalysis: true, imageCount: images.length, provider: this.id
+        }
+      };
+    } catch (e) {
+      logger.warn('Gemini multi-image streaming failed', { error: e.message });
+      throw e;
+    }
+  }
+
   async testConnection() {
     if (!this.isInitialized) return { success: false, error: 'Service not initialized', errorType: 'NO_KEY' };
     try {
