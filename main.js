@@ -70,6 +70,9 @@ if (process.platform === "linux") {
 
 // Keep Chromium network noise out of the terminal; app-level logs still go through Winston.
 app.commandLine.appendSwitch("log-level", "3");
+// Surface renderer/GPU crash output in the terminal while debugging the
+// "window dies after provider selection" issue. Remove when resolved.
+app.commandLine.appendSwitch("enable-logging");
 app.commandLine.appendSwitch("disable-background-networking");
 app.commandLine.appendSwitch("disable-component-update");
 app.commandLine.appendSwitch("disable-domain-reliability");
@@ -221,6 +224,18 @@ class ApplicationController {
     app.on("window-all-closed", () => this.onWindowAllClosed());
     app.on("activate", () => this.onActivate());
     app.on("will-quit", () => this.onWillQuit());
+
+    // Crash observability: GPU/utility/renderer child-process deaths log
+    // their reason here. Without this hook a GPU crash that takes windows
+    // down is completely invisible in the logs.
+    app.on("child-process-gone", (_event, details) => {
+      logger.error("Child process gone", {
+        type: details.type,
+        reason: details.reason,
+        exitCode: details.exitCode,
+        name: details.name || undefined
+      });
+    });
 
     this.setupIPCHandlers();
     this.setupServiceEventHandlers();

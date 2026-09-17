@@ -438,6 +438,26 @@ class WindowManager {
 
   const window = new BrowserWindow(browserWindowOptions);
 
+    // Crash observability: without these hooks a renderer/GPU death is
+    // completely silent — the window just vanishes or whites out and the
+    // main-process log stops, which is indistinguishable from a hang.
+    window.webContents.on('render-process-gone', (_e, details) => {
+      logger.error('Renderer process gone', {
+        windowType: type,
+        reason: details.reason,
+        exitCode: details.exitCode,
+        url: window.webContents.getURL()
+      });
+    });
+    window.webContents.on('unresponsive', () => {
+      logger.error('Renderer unresponsive', { windowType: type });
+    });
+    window.webContents.on('did-fail-load', (_e, errorCode, errorDescription, failedUrl, isMainFrame) => {
+      if (isMainFrame) {
+        logger.error('Window failed to load', { windowType: type, errorCode, errorDescription, failedUrl });
+      }
+    });
+
     // External links (GitHub, the website, Google AI Studio, etc.) must open in
     // the user's real browser, never inside the frameless overlay windows.
     // Deny any in-app window.open and hand http(s) URLs to the OS browser, and
