@@ -96,6 +96,59 @@ class LLMService {
     return this.processTextStream(text, { activeSkill, sessionMemory, programmingLanguage }, onDelta);
   }
 
+  // ── Shim for main.js:696 (network diagnostics) ──
+  async checkNetworkConnectivity() {
+    const a = router.getActive();
+    if (a && typeof a.checkNetworkConnectivity === 'function') {
+      return a.checkNetworkConnectivity();
+    }
+    // Generic fallback: test basic HTTPS connectivity to a public endpoint.
+    return new Promise((resolve) => {
+      const net = require('net');
+      const socket = new net.Socket();
+      const timeout = setTimeout(() => {
+        socket.destroy();
+        resolve({ timestamp: new Date().toISOString(), tests: [{ success: false, error: 'timeout' }] });
+      }, 5000);
+      socket.on('connect', () => {
+        clearTimeout(timeout);
+        socket.destroy();
+        resolve({
+          timestamp: new Date().toISOString(),
+          tests: [{ host: 'google.com', port: 443, name: 'Google (HTTPS)', success: true, error: null }]
+        });
+      });
+      socket.on('error', (err) => {
+        clearTimeout(timeout);
+        resolve({ timestamp: new Date().toISOString(), tests: [{ success: false, error: err.message }] });
+      });
+      socket.connect(443, 'google.com');
+    });
+  }
+
+  // ── Shim for main.js:1389 (intelligent fallback) ──
+  generateIntelligentFallbackResponse(text, activeSkill) {
+    const a = router.getActive();
+    if (a && typeof a.generateIntelligentFallbackResponse === 'function') {
+      return a.generateIntelligentFallbackResponse(text, activeSkill);
+    }
+    const trimmed = (text || '').trim();
+    const isQuestion = /\?|how|what|why|when|where|can you|could you/i.test(trimmed);
+    const response = isQuestion
+      ? `I'm having trouble processing that. Could you rephrase your ${activeSkill} question?`
+      : `Yeah, I'm listening. Ask your question relevant to ${activeSkill}.`;
+    return {
+      response,
+      metadata: {
+        skill: activeSkill,
+        processingTime: 0,
+        usedFallback: true,
+        isTranscriptionResponse: true,
+        provider: router.getActiveProviderId() || 'unknown'
+      }
+    };
+  }
+
   // ── Internals ──
 
   async _delegate(method, args) {
