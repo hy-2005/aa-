@@ -43,7 +43,6 @@
     "winston-daily-rotate-file": "^4.7.1"
   },
   "devDependencies": {
-    "cross-env": "^10.1.0",
     "electron": "^29.1.0",
     "electron-builder": "^24.13.3"
   },
