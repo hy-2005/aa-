@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Settings</title>
+    <title>设置</title>
     <link href="./src/styles/common.css" rel="stylesheet">
     <style>
         * {
@@ -277,16 +277,16 @@
         <div class="settings-header">
             <div class="header-title">
                 <i class="fas fa-cog"></i>
-                Settings
+                设置
             </div>
             <div class="header-actions">
                 <button class="btn btn-quit" id="quitButton">
                     <i class="fas fa-power-off"></i>
-                    Quit
+                    退出
                 </button>
                 <button class="btn" id="closeButton">
                     <i class="fas fa-times"></i>
-                    Close
+                    关闭
                 </button>
             </div>
         </div>
@@ -295,13 +295,13 @@
             <div class="settings-section">
                 <div class="settings-section-title">
                     <i class="fas fa-code"></i>
-                    Language & Skills
+                    语言与技能
                 </div>
                 <div class="settings-section-content">
                     <div class="settings-item">
                         <div>
-                            <div class="settings-item-label">Coding Language</div>
-                            <div class="settings-item-description">Select your preferred programming language</div>
+                            <div class="settings-item-label">编程语言</div>
+                            <div class="settings-item-description">选择你偏好的编程语言</div>
                         </div>
                         <select class="input-field" id="codingLanguage">
                             <option value="cpp">C++</option>
@@ -313,11 +313,11 @@
                     </div>
                     <div class="settings-item">
                         <div>
-                            <div class="settings-item-label">Active Skill</div>
-                            <div class="settings-item-description">Choose your current focus area</div>
+                            <div class="settings-item-label">当前技能</div>
+                            <div class="settings-item-description">选择你当前的练习方向</div>
                         </div>
                         <select class="input-field" id="activeSkill">
-                            <option value="dsa">Data Structures & Algorithms</option>
+                            <option value="dsa">数据结构与算法</option>
                         </select>
                     </div>
                 </div>
@@ -326,21 +326,21 @@
             <div class="settings-section">
                 <div class="settings-section-title">
                     <i class="fas fa-icons"></i>
-                    App Icon
+                    应用图标
                 </div>
                 <div class="settings-section-content">
                     <div class="icon-grid" id="iconGrid">
                         <div class="icon-option" data-icon="terminal">
-                            <img src="./assests/icons/terminal.png" alt="Terminal">
-                            <div>Terminal</div>
+                            <img src="./assests/icons/terminal.png" alt="终端">
+                            <div>终端</div>
                         </div>
                         <div class="icon-option" data-icon="activity">
-                            <img src="./assests/icons/activity.png" alt="Activity">
-                            <div>Activity</div>
+                            <img src="./assests/icons/activity.png" alt="活动">
+                            <div>活动</div>
                         </div>
                         <div class="icon-option" data-icon="settings">
-                            <img src="./assests/icons/settings.png" alt="Settings">
-                            <div>Settings</div>
+                            <img src="./assests/icons/settings.png" alt="设置">
+                            <div>设置</div>
                         </div>
                     </div>
                 </div>
@@ -349,17 +349,17 @@
             <div class="settings-section">
                 <div class="settings-section-title">
                     <i class="fas fa-microphone"></i>
-                    Speech Recognition
+                    语音识别
                 </div>
                 <div class="settings-section-content">
                     <div class="settings-item">
                         <div>
-                            <div class="settings-item-label">Speech Provider</div>
-                            <div class="settings-item-description">Choose Azure Speech or a local OpenAI Whisper CLI</div>
+                            <div class="settings-item-label">语音服务</div>
+                            <div class="settings-item-description">选择 Azure 语音或本地 Whisper</div>
                         </div>
                         <select class="input-field" id="speechProvider">
-                            <option value="azure">Azure Speech</option>
-                            <option value="whisper">Local Whisper</option>
+                            <option value="azure">Azure 语音</option>
+                            <option value="whisper">本地 Whisper</option>
                         </select>
                     </div>
 
@@ -367,17 +367,17 @@
                     <div id="azureFields" class="settings-group">
                         <div class="settings-item">
                             <div>
-                                <div class="settings-item-label">Azure Speech Key</div>
-                                <div class="settings-item-description">Your Azure Cognitive Services API key</div>
+                                <div class="settings-item-label">Azure 语音密钥</div>
+                                <div class="settings-item-description">你的 Azure 认知服务 API 密钥</div>
                             </div>
-                            <input type="password" class="input-field" id="azureKey" placeholder="Enter your Azure key">
+                            <input type="password" class="input-field" id="azureKey" placeholder="输入 Azure 密钥">
                         </div>
                         <div class="settings-item">
                             <div>
-                                <div class="settings-item-label">Azure Region</div>
-                                <div class="settings-item-description">Your Azure service region</div>
+                                <div class="settings-item-label">Azure 区域</div>
+                                <div class="settings-item-description">你的 Azure 服务区域</div>
                             </div>
-                            <input type="text" class="input-field" id="azureRegion" placeholder="e.g. eastus">
+                            <input type="text" class="input-field" id="azureRegion" placeholder="如 eastus">
                         </div>
                     </div>
 
@@ -386,72 +386,72 @@
                         <div class="settings-item">
                             <div class="settings-stack">
                                 <div>
-                                    <div class="settings-item-label">Whisper Command</div>
-                                    <div class="settings-item-description">CLI command for local Whisper, such as <code>whisper</code> or <code>python3 -m whisper</code></div>
+                                    <div class="settings-item-label">Whisper 命令</div>
+                                    <div class="settings-item-description">本地 Whisper 的命令行，例如 <code>whisper</code> 或 <code>python3 -m whisper</code></div>
                                 </div>
                                 <input type="text" class="input-field" id="whisperCommand" placeholder="whisper" style="max-width: 100%;">
                             </div>
                         </div>
                         <div class="settings-item">
                             <div>
-                                <div class="settings-item-label">Whisper Model</div>
-                                <div class="settings-item-description">Local model name used by the Whisper CLI</div>
+                                <div class="settings-item-label">Whisper 模型</div>
+                                <div class="settings-item-description">Whisper 使用的本地模型名称</div>
                             </div>
                             <input type="text" class="input-field" id="whisperModel" placeholder="small">
                         </div>
                         <div class="settings-item">
                             <div>
-                                <div class="settings-item-label">Whisper Language</div>
-                                <div class="settings-item-description">Language code or auto-detection for local transcription</div>
+                                <div class="settings-item-label">Whisper 语言</div>
+                                <div class="settings-item-description">语言代码，或 auto 自动检测</div>
                             </div>
                             <input type="text" class="input-field" id="whisperLanguage" placeholder="auto">
                         </div>
                         <div class="settings-item">
                             <div>
-                                <div class="settings-item-label">Compute Device</div>
-                                <div class="settings-item-description">Automatically use CUDA when available, or force CPU/GPU</div>
+                                <div class="settings-item-label">计算设备</div>
+                                <div class="settings-item-description">有 CUDA 时自动使用 GPU，也可强制指定 CPU/GPU</div>
                             </div>
                             <select class="input-field" id="whisperDevice">
-                                <option value="auto">Auto</option>
+                                <option value="auto">自动</option>
                                 <option value="cpu">CPU</option>
                                 <option value="cuda">CUDA</option>
                             </select>
                         </div>
                         <div class="settings-item">
                             <div>
-                                <div class="settings-item-label">Capture Mode</div>
-                                <div class="settings-item-description">Manual records until you press stop; VAD detects natural pauses</div>
+                                <div class="settings-item-label">采集模式</div>
+                                <div class="settings-item-description">手动模式按停止键结束；VAD 模式自动检测说话停顿</div>
                             </div>
                             <select class="input-field" id="whisperCaptureMode">
-                                <option value="vad">Automatic (VAD)</option>
-                                <option value="manual">Manual start/stop</option>
+                                <option value="vad">自动（VAD）</option>
+                                <option value="manual">手动开始/停止</option>
                             </select>
                         </div>
                         <div class="settings-item">
                             <div>
-                                <div class="settings-item-label">Voice Response Target</div>
-                                <div class="settings-item-description">Choose where answers generated from speech are displayed</div>
+                                <div class="settings-item-label">语音回答显示位置</div>
+                                <div class="settings-item-description">选择语音提问生成的回答显示在哪里</div>
                             </div>
                             <select class="input-field" id="whisperResponseTarget">
-                                <option value="both">Chat and overlay</option>
-                                <option value="chat">Chat only</option>
-                                <option value="overlay">Overlay only</option>
+                                <option value="both">聊天窗和悬浮窗</option>
+                                <option value="chat">仅聊天窗</option>
+                                <option value="overlay">仅悬浮窗</option>
                             </select>
                         </div>
                         <div class="settings-item">
                             <div>
-                                <div class="settings-item-label">Whisper Segment Length</div>
-                                <div class="settings-item-description">Chunk size in milliseconds for local transcription</div>
+                                <div class="settings-item-label">Whisper 分段长度</div>
+                                <div class="settings-item-description">本地转写的分段大小（毫秒）</div>
                             </div>
                             <input type="number" class="input-field" id="whisperSegmentMs" placeholder="4000" min="2000" step="500">
                         </div>
                         <div class="settings-note">
-                            Local Whisper runs on this machine and needs a Whisper CLI installed. These settings apply immediately for the current app session and are also written back to <code>.env</code> so they persist across restarts.
+                            本地 Whisper 在本机运行，需要已安装 Whisper 命令行。这些设置立即生效，同时写回 <code>.env</code> 以便重启后保留。
                         </div>
                     </div>
 
                     <div id="azureFieldsNote" class="settings-note">
-                        Azure credentials apply immediately and are also written back to <code>.env</code> so they persist across restarts.
+                        Azure 凭据立即生效，同时写回 <code>.env</code> 以便重启后保留。
                     </div>
                 </div>
             </div>
@@ -459,17 +459,17 @@
             <div class="settings-section">
                 <div class="settings-section-title">
                     <i class="fas fa-robot"></i>
-                    Gemini Settings
+                    AI 服务商设置
                 </div>
                 <div class="settings-section-content">
                     <div class="form-group">
-                        <label class="form-label" for="activeProvider">Active Provider</label>
+                        <label class="form-label" for="activeProvider">当前服务商</label>
                         <select id="activeProvider" class="input-field">
                             <option value="gemini">Google Gemini</option>
                             <option value="openai">OpenAI</option>
-                            <option value="openai-compatible">OpenAI Compatible (DeepSeek / Ollama / OpenRouter / Custom)</option>
+                            <option value="openai-compatible">OpenAI 兼容（MiniMax / DeepSeek / Ollama / OpenRouter / 自定义）</option>
                         </select>
-                        <p class="form-hint">Select which LLM provider to use. All providers can be configured below.</p>
+                        <p class="form-hint">选择当前使用的大模型服务商。所有服务商的配置都可以在下方填写。</p>
                     </div>
 
                     <div id="provider-fields">
@@ -479,42 +479,42 @@
                     <hr style="margin: 16px 0; opacity: 0.2;">
 
                     <div class="form-group provider-block" data-provider="gemini">
-                        <label class="form-label" for="geminiKey">Google Gemini API Key</label>
-                        <input type="password" class="input-field" id="geminiKey" placeholder="Enter your Google API key">
-                        <label class="form-label" for="geminiModel" style="margin-top:8px;">Gemini Model</label>
+                        <label class="form-label" for="geminiKey">Google Gemini API 密钥</label>
+                        <input type="password" class="input-field" id="geminiKey" placeholder="输入 Google API 密钥">
+                        <label class="form-label" for="geminiModel" style="margin-top:8px;">Gemini 模型</label>
                         <input type="text" class="input-field" id="geminiModel" placeholder="gemini-3.1-flash-lite">
                     </div>
 
                     <div class="form-group provider-block" data-provider="openai" style="display:none;">
-                        <label class="form-label" for="openaiKey">OpenAI API Key</label>
+                        <label class="form-label" for="openaiKey">OpenAI API 密钥</label>
                         <input type="password" class="input-field" id="openaiKey" placeholder="sk-...">
-                        <label class="form-label" for="openaiModel" style="margin-top:8px;">OpenAI Model</label>
+                        <label class="form-label" for="openaiModel" style="margin-top:8px;">OpenAI 模型</label>
                         <input type="text" class="input-field" id="openaiModel" placeholder="gpt-4o-mini">
                     </div>
 
                     <div class="form-group provider-block" data-provider="openai-compatible" style="display:none;">
-                        <label class="form-label">OpenAI Compatible (DeepSeek / Ollama / OpenRouter / Custom)</label>
-                        <input type="password" class="input-field" id="openaiCompatKey" placeholder="API Key">
-                        <input type="text" class="input-field" id="openaiCompatModel" placeholder="Model (deepseek-chat, llama3, ...)" style="margin-top:8px;">
-                        <input type="text" class="input-field" id="openaiCompatBaseUrl" placeholder="Base URL (https://api.deepseek.com/v1)" style="margin-top:8px;">
+                        <label class="form-label">OpenAI 兼容（MiniMax / DeepSeek / Ollama / OpenRouter / 自定义）</label>
+                        <input type="password" class="input-field" id="openaiCompatKey" placeholder="API 密钥">
+                        <input type="text" class="input-field" id="openaiCompatModel" placeholder="模型（如 MiniMax-M3、deepseek-chat …）" style="margin-top:8px;">
+                        <input type="text" class="input-field" id="openaiCompatBaseUrl" placeholder="接口地址（如 https://api.minimax.cn/v1）" style="margin-top:8px;">
                     </div>
 
-                    <button id="testLlmConnection" class="secondary-button" style="margin-top:8px;">Test Active Provider</button>
+                    <button id="testLlmConnection" class="secondary-button" style="margin-top:8px;">测试当前服务商</button>
                     <span id="llmConnectionStatus" style="margin-left:8px;"></span>
                     <div id="saveStatus" style="font-size:11px; margin-top:6px; color: rgba(255,255,255,0.75);"></div>
                 </div>
             </div>
-            
+
             <div class="settings-section">
                 <div class="settings-section-title">
                     <i class="fas fa-window-maximize"></i>
-                    Window Settings
+                    窗口设置
                 </div>
                 <div class="settings-section-content">
                     <div class="settings-item">
                         <div>
-                            <div class="settings-item-label">Window Gap</div>
-                            <div class="settings-item-description">Gap between bound windows (in pixels)</div>
+                            <div class="settings-item-label">窗口间距</div>
+                            <div class="settings-item-description">绑定窗口之间的间距（像素）</div>
                         </div>
                         <input type="number" class="input-field" id="windowGap" placeholder="20" min="0" max="100">
                     </div>

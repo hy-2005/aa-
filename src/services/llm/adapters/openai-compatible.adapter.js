@@ -1,6 +1,6 @@
 const OpenAI = require('openai');
 const logger = require('../../../core/logger').createServiceLogger('OpenAICompatibleAdapter');
-const { NoApiKeyError, normalizeError, ImageNotSupportedError, withTimeout } = require('../errors');
+const { NoApiKeyError, normalizeError, withTimeout } = require('../errors');
 const { promptLoader } = require('../../../../prompt-loader');
 
 const TEST_TIMEOUT_MS = 8000;
@@ -76,6 +76,34 @@ class OpenAICompatibleAdapter {
     return messages;
   }
 
+  _buildImageMessages({ imageBuffer, mimeType, prompt, activeSkill, sessionMemory, programmingLanguage }) {
+    const messages = [];
+    const skillPrompt = promptLoader.getSkillPrompt(activeSkill, programmingLanguage);
+    if (skillPrompt && skillPrompt.trim()) {
+      messages.push({ role: 'system', content: skillPrompt });
+    }
+    const base64 = imageBuffer.toString('base64');
+    const dataUrl = `data:${mimeType};base64,${base64}`;
+    messages.push({
+      role: 'user',
+      content: [
+        { type: 'text', text: prompt || `Analyze this image for a ${activeSkill} question.` },
+        { type: 'image_url', image_url: { url: dataUrl } }
+      ]
+    });
+    return messages;
+  }
+
+  // Reasoning models (MiniMax-M3, DeepSeek-R1, …) emit <think>…</think>
+  // blocks. Users want the answer, not the scratchpad, so strip closed
+  // blocks and drop the tail of a still-open block.
+  _stripThinking(text) {
+    let out = String(text || '').replace(/<think>[\s\S]*?<\/think>/g, '');
+    const open = out.indexOf('<think>');
+    if (open !== -1) out = out.slice(0, open);
+    return out;
+  }
+
   async processText(text, { activeSkill, sessionMemory = [], programmingLanguage = null } = {}) {
     this._assertReady();
     const start = Date.now();
@@ -87,7 +115,7 @@ class OpenAICompatibleAdapter {
         messages,
         temperature: 0.7
       });
-      const response = resp.choices?.[0]?.message?.content || '';
+      const response = this._stripThinking(resp.choices?.[0]?.message?.content || '').trim();
       return {
         response,
         metadata: {
@@ -114,16 +142,24 @@ class OpenAICompatibleAdapter {
         temperature: 0.7,
         stream: true
       });
+      // Emit only post-thinking text: keep the full accumulated text and,
+      // after every chunk, emit the diff of the stripped view. Nothing
+      // inside a think block ever reaches the UI, even mid-stream.
       let fullText = '';
+      let emitted = '';
       for await (const chunk of stream) {
         const delta = chunk.choices?.[0]?.delta?.content || '';
         if (delta) {
           fullText += delta;
-          if (typeof onDelta === 'function') onDelta(delta);
+          const stripped = this._stripThinking(fullText);
+          if (stripped.length > emitted.length && stripped.startsWith(emitted)) {
+            onDelta && onDelta(stripped.slice(emitted.length));
+            emitted = stripped;
+          }
         }
       }
       return {
-        response: fullText,
+        response: emitted.trim(),
         metadata: {
           skill: activeSkill, programmingLanguage,
           processingTime: Date.now() - start, requestId: this.requestCount,
@@ -137,12 +173,75 @@ class OpenAICompatibleAdapter {
     }
   }
 
-  async processImage(opts) {
-    throw new ImageNotSupportedError(this.id);
+  // Vision via image_url data URLs. Many compatible providers support this
+  // (MiniMax-M3, Qwen-VL, GLM-4V, …). Providers that don't will surface a
+  // normal API error, which flows to the UI error path.
+  async processImage({ imageBuffer, mimeType, prompt, activeSkill, sessionMemory = [], programmingLanguage = null }) {
+    this._assertReady();
+    const start = Date.now();
+    this.requestCount++;
+    try {
+      const messages = this._buildImageMessages({ imageBuffer, mimeType, prompt, activeSkill, sessionMemory, programmingLanguage });
+      const resp = await this.client.chat.completions.create({
+        model: this.model,
+        messages,
+        temperature: 0.7,
+        max_tokens: 4096
+      });
+      const response = this._stripThinking(resp.choices?.[0]?.message?.content || '').trim();
+      return {
+        response,
+        metadata: {
+          skill: activeSkill, programmingLanguage,
+          processingTime: Date.now() - start, requestId: this.requestCount,
+          usedFallback: false, isImageAnalysis: true, mimeType, provider: this.id
+        }
+      };
+    } catch (e) {
+      this.errorCount++;
+      throw e;
+    }
   }
 
-  async processImageStream(opts, onDelta) {
-    throw new ImageNotSupportedError(this.id);
+  async processImageStream({ imageBuffer, mimeType, prompt, activeSkill, sessionMemory = [], programmingLanguage = null }, onDelta = null) {
+    this._assertReady();
+    const start = Date.now();
+    this.requestCount++;
+    try {
+      const messages = this._buildImageMessages({ imageBuffer, mimeType, prompt, activeSkill, sessionMemory, programmingLanguage });
+      const stream = await this.client.chat.completions.create({
+        model: this.model,
+        messages,
+        temperature: 0.7,
+        max_tokens: 4096,
+        stream: true
+      });
+      let fullText = '';
+      let emitted = '';
+      for await (const chunk of stream) {
+        const delta = chunk.choices?.[0]?.delta?.content || '';
+        if (delta) {
+          fullText += delta;
+          const stripped = this._stripThinking(fullText);
+          if (stripped.length > emitted.length && stripped.startsWith(emitted)) {
+            onDelta && onDelta(stripped.slice(emitted.length));
+            emitted = stripped;
+          }
+        }
+      }
+      return {
+        response: emitted.trim(),
+        metadata: {
+          skill: activeSkill, programmingLanguage,
+          processingTime: Date.now() - start, requestId: this.requestCount,
+          usedFallback: false, streamed: true, isImageAnalysis: true, mimeType, provider: this.id
+        }
+      };
+    } catch (e) {
+      this.errorCount++;
+      logger.warn('OpenAI-compatible image streaming failed, falling back to non-streaming', { error: e.message });
+      return this.processImage({ imageBuffer, mimeType, prompt, activeSkill, sessionMemory, programmingLanguage });
+    }
   }
 
   async testConnection() {

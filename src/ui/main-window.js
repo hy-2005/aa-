@@ -517,17 +517,17 @@ class MainWindowUI {
     }
 
     handleLLMResponse(data) {
-        const skill = data.skill || data.metadata?.skill || 'General';
+        const skill = data.skill || data.metadata?.skill || '通用';
         const skillNames = {
-            'dsa': 'DSA',
-            'behavioral': 'Behavioral', 
-            'sales': 'Sales',
-            'presentation': 'Presentation',
-            'data-science': 'Data Science',
-            'programming': 'Programming',
-            'devops': 'DevOps',
-            'system-design': 'System Design',
-            'negotiation': 'Negotiation'
+            'dsa': '数据结构与算法',
+            'behavioral': '行为面试',
+            'sales': '销售',
+            'presentation': '演讲',
+            'data-science': '数据科学',
+            'programming': '编程',
+            'devops': '运维',
+            'system-design': '系统设计',
+            'negotiation': '谈判'
         };
         
         const displaySkill = skillNames[skill] || skill.toUpperCase();

@@ -94,7 +94,7 @@
   function refreshStepper() {
     const total = totalSteps();
     const current = state.step + 1;
-    stepBadge.textContent = `Step ${current} of ${total}`;
+    stepBadge.textContent = `第 ${current} / ${total} 步`;
     stepperDots.forEach((dot, i) => {
       dot.classList.remove('active', 'done');
       if (i < state.step) dot.classList.add('done');
@@ -120,10 +120,10 @@
       nextBtn.classList.add('primary');
     }
     // The primary action label changes by step
-    if (name === 'welcome') nextBtn.innerHTML = 'Get started <i class="fas fa-arrow-right"></i>';
-    else if (name === 'finish') nextBtn.innerHTML = 'Finish <i class="fas fa-check"></i>';
-    else if (name === 'whisper') nextBtn.innerHTML = 'Continue <i class="fas fa-arrow-right"></i>';
-    else nextBtn.innerHTML = 'Continue <i class="fas fa-arrow-right"></i>';
+    if (name === 'welcome') nextBtn.innerHTML = '开始使用 <i class="fas fa-arrow-right"></i>';
+    else if (name === 'finish') nextBtn.innerHTML = '完成 <i class="fas fa-check"></i>';
+    else if (name === 'whisper') nextBtn.innerHTML = '继续 <i class="fas fa-arrow-right"></i>';
+    else nextBtn.innerHTML = '继续 <i class="fas fa-arrow-right"></i>';
   }
 
   function navigate(direction) {
@@ -215,26 +215,26 @@
       url: 'https://aistudio.google.com/apikey',
       label: 'aistudio.google.com/apikey',
       html:
-        'Don\'t have one? Get a free key at ' +
+        '还没有密钥？去 ' +
         '<a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">' +
-        'aistudio.google.com/apikey</a>. Keys are stored locally — ' +
-        'never sent anywhere except Google.',
+        'aistudio.google.com/apikey</a> 免费获取。密钥仅保存在本地，' +
+        '只会发送给 Google。',
     },
     openai: {
       url: 'https://platform.openai.com/api-keys',
       label: 'platform.openai.com/api-keys',
       html:
-        'Don\'t have one? Create a key at ' +
+        '还没有密钥？去 ' +
         '<a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">' +
-        'platform.openai.com/api-keys</a>. Keys are stored locally — ' +
-        'never sent anywhere except OpenAI.',
+        'platform.openai.com/api-keys</a> 创建。密钥仅保存在本地，' +
+        '只会发送给 OpenAI。',
     },
     'openai-compatible': {
-      url: 'https://platform.deepseek.com',
-      label: 'platform.deepseek.com',
+      url: 'https://platform.minimaxi.com',
+      label: 'MiniMax 开放平台',
       html:
-        'Endpoint depends on your provider (e.g. <code>platform.deepseek.com</code> for DeepSeek). ' +
-        'Keys are stored locally and only sent to your configured Base URL.',
+        '接口地址取决于你的服务商（例如 MiniMax 为 <code>https://api.minimax.cn/v1</code>，DeepSeek 为 <code>https://api.deepseek.com/v1</code>）。' +
+        '密钥仅保存在本地，只会发送给你填写的接口地址。',
     },
   };
 
@@ -318,7 +318,7 @@
           } else if (keyStatus.classList.contains('success')) {
             // Keep success state — they had a valid key, may be editing
           } else {
-            setKeyStatus('idle', 'Key entered');
+            setKeyStatus('idle', '已输入密钥');
           }
         }
       });
@@ -387,40 +387,40 @@
   }
 
   async function runWhisperDetect() {
-    detectCmd.textContent = 'scanning…';
-    setDetectStatus('testing', 'Probing');
+    detectCmd.textContent = '扫描中…';
+    setDetectStatus('testing', '检测中');
     try {
       const r = await window.electronAPI.detectWhisper();
       if (r.found) {
         state.whisperDetected = true;
         state.whisperCmd = r.command;
         detectCmd.textContent = r.command;
-        setDetectStatus('success', `Found v${r.version || '?'}`);
-        appendLog(`✓ Detected Whisper CLI: ${r.command}`);
+        setDetectStatus('success', `已找到 v${r.version || '?'}`);
+        appendLog(`✓ 检测到 Whisper CLI：${r.command}`);
       } else {
-        detectCmd.textContent = 'not found';
-        setDetectStatus('error', 'Not installed');
-        appendLog('✗ No Whisper CLI detected on PATH or in known venvs');
+        detectCmd.textContent = '未找到';
+        setDetectStatus('error', '未安装');
+        appendLog('✗ 在 PATH 和已知 venv 中未检测到 Whisper CLI');
       }
     } catch (e) {
-      setDetectStatus('error', 'Probe failed');
-      appendLog(`! Detection error: ${e.message || e}`);
+      setDetectStatus('error', '检测失败');
+      appendLog(`! 检测出错：${e.message || e}`);
     }
   }
 
   async function runWhisperInstall() {
     const btn = document.getElementById('installWhisperBtn');
     installLog.textContent = '';
-    setDetectStatus('testing', 'Installing');
-    appendLog('Starting install…');
+    setDetectStatus('testing', '安装中');
+    appendLog('开始安装…');
 
     // Lock the button while installing so the user can't double-click
-    // and spawn parallel installs. Change the label to "Installing…"
+    // and spawn parallel installs. Change the label to "安装中…"
     // with a spinner so they see real progress.
     if (btn) {
       btn.disabled = true;
       btn.dataset.originalHtml = btn.dataset.originalHtml || btn.innerHTML;
-      btn.innerHTML = '<span class="spinner"></span> Installing…';
+      btn.innerHTML = '<span class="spinner"></span> 安装中…';
     }
 
     // Subscribe to streamed progress lines from the main process.
@@ -438,30 +438,30 @@
         state.whisperDetected = true;
         state.whisperCmd = r.command;
         detectCmd.textContent = r.command;
-        setDetectStatus('success', 'Installed');
+        setDetectStatus('success', '已安装');
         appendLog(`\n✓ ${r.message}`);
         if (btn) {
           // Keep button disabled — install is done. Show a checkmark
           // so the user sees the final state at a glance.
-          btn.innerHTML = '<i class="fas fa-check-circle"></i> Installed';
+          btn.innerHTML = '<i class="fas fa-check-circle"></i> 已安装';
           btn.classList.remove('primary');
           btn.classList.add('success');
         }
       } else {
-        setDetectStatus('error', 'Install failed');
+        setDetectStatus('error', '安装失败');
         appendLog(`\n✗ ${r.message}`);
         // Restore the button so the user can retry.
         if (btn) {
           btn.disabled = false;
-          btn.innerHTML = btn.dataset.originalHtml || '<i class="fas fa-download"></i> Install Whisper now';
+          btn.innerHTML = btn.dataset.originalHtml || '<i class="fas fa-download"></i> 立即安装 Whisper';
         }
       }
     } catch (e) {
-      setDetectStatus('error', 'Install error');
+      setDetectStatus('error', '安装出错');
       appendLog(`\n! ${e.message || e}`);
       if (btn) {
         btn.disabled = false;
-        btn.innerHTML = btn.dataset.originalHtml || '<i class="fas fa-download"></i> Install Whisper now';
+        btn.innerHTML = btn.dataset.originalHtml || '<i class="fas fa-download"></i> 立即安装 Whisper';
       }
     } finally {
       if (progressHandler && window.electronAPI.removeAllListeners) {
@@ -477,30 +477,30 @@
     whisperInitialized = true;
     const hints = {
       win32: {
-        title: "We'll create a project-local venv and install openai-whisper",
+        title: '将创建本地虚拟环境并安装 openai-whisper',
         steps: [
-          'Python 3.10+ must be on PATH (download from python.org if missing).',
-          'A new <code>.venv-whisper\\</code> folder will be created in the app directory.',
-          'Whisper will be installed into that venv (pip download, no admin rights needed).',
-          'First transcription downloads the <code>small</code> model (~461 MB).',
+          '需要 PATH 中有 Python 3.10+（缺失请从 python.org 下载安装）。',
+          '会在应用目录创建 <code>.venv-whisper\\</code> 文件夹。',
+          'Whisper 将安装到该虚拟环境（pip 下载，无需管理员权限）。',
+          '首次转写会下载 <code>small</code> 模型（约 461 MB）。',
         ],
       },
       darwin: {
-        title: "We'll create a project-local venv and install openai-whisper",
+        title: '将创建本地虚拟环境并安装 openai-whisper',
         steps: [
-          'Uses your existing Python 3 (install via Homebrew if missing).',
-          'A new <code>.venv-whisper/</code> folder is created in the app data directory.',
-          'Whisper installs into that venv — no <code>sudo</code> required.',
-          'First transcription downloads the <code>small</code> model (~461 MB).',
+          '使用你现有的 Python 3（缺失请通过 Homebrew 安装）。',
+          '会在应用数据目录创建 <code>.venv-whisper/</code> 文件夹。',
+          'Whisper 安装到该虚拟环境 —— 无需 <code>sudo</code>。',
+          '首次转写会下载 <code>small</code> 模型（约 461 MB）。',
         ],
       },
       other: {
-        title: "We'll create a project-local venv and install openai-whisper",
+        title: '将创建本地虚拟环境并安装 openai-whisper',
         steps: [
-          'Uses your system Python 3 (needs <code>python3-venv</code> on Debian/Ubuntu).',
-          'A new <code>.venv-whisper/</code> folder is created in the app data directory.',
-          'Whisper installs into that venv — avoids the externally-managed-environment error.',
-          'First transcription downloads the <code>small</code> model (~461 MB).',
+          '使用系统 Python 3（Debian/Ubuntu 需要 <code>python3-venv</code>）。',
+          '会在应用数据目录创建 <code>.venv-whisper/</code> 文件夹。',
+          'Whisper 安装到该虚拟环境 —— 可避免 externally-managed-environment 报错。',
+          '首次转写会下载 <code>small</code> 模型（约 461 MB）。',
         ],
       },
     };
@@ -561,9 +561,9 @@
   async function startModelDownload() {
     state.modelDownloading = true;
     nextBtn.disabled = true;
-    nextBtn.innerHTML = '<span class="spinner"></span> Downloading…';
+    nextBtn.innerHTML = '<span class="spinner"></span> 下载中…';
 
-    appendModelLog('Starting model download…');
+    appendModelLog('开始下载模型…');
 
     let progressHandler = null;
     if (window.electronAPI && window.electronAPI.onInstallProgress) {
@@ -576,19 +576,19 @@
       state.modelDownloading = false;
       if (r.ok) {
         state.modelDownloaded = true;
-        appendModelLog(`\n✓ Model downloaded successfully: ${r.path}`);
+        appendModelLog(`\n✓ 模型下载成功：${r.path}`);
         nextBtn.disabled = false;
         nextBtn.classList.remove('primary');
         nextBtn.classList.add('success');
-        nextBtn.innerHTML = '<i class="fas fa-check-circle"></i> Continue';
+        nextBtn.innerHTML = '<i class="fas fa-check-circle"></i> 继续';
       } else {
-        appendModelLog(`\n✗ Download failed: ${r.message}`);
+        appendModelLog(`\n✗ 下载失败：${r.message}`);
         // Let user continue anyway; they'll download on first use
         nextBtn.disabled = false;
       }
     } catch (e) {
       state.modelDownloading = false;
-      appendModelLog(`\n! Error: ${e.message || e}`);
+      appendModelLog(`\n! 出错：${e.message || e}`);
       nextBtn.disabled = false;
     } finally {
       if (progressHandler && window.electronAPI.removeAllListeners) {
@@ -607,31 +607,31 @@
       (!isOpenAICompat || (activeP.model && activeP.model.trim() && activeP.baseUrl && activeP.baseUrl.trim()))
     );
     rows.push({
-      label: `<i class="fas fa-key"></i> AI Provider (${state.activeProvider})`,
-      value: (activeConfigured || state.geminiConfigured) ? 'Configured' : 'Missing',
+      label: `<i class="fas fa-key"></i> AI 服务商（${state.activeProvider}）`,
+      value: (activeConfigured || state.geminiConfigured) ? '已配置' : '未配置',
       cls: (activeConfigured || state.geminiConfigured) ? 'ok' : 'skip',
     });
     if (state.speechProvider === 'whisper') {
       rows.push({
-        label: '<i class="fas fa-microphone"></i> Speech',
-        value: state.whisperDetected ? `Whisper (${state.whisperCmd || 'cli'})` : 'Whisper (not installed)',
+        label: '<i class="fas fa-microphone"></i> 语音识别',
+        value: state.whisperDetected ? `Whisper（${state.whisperCmd || 'cli'}）` : 'Whisper（未安装）',
         cls: state.whisperDetected ? 'ok' : 'skip',
       });
     } else if (state.speechProvider === 'azure') {
       rows.push({
-        label: '<i class="fas fa-cloud"></i> Speech',
+        label: '<i class="fas fa-cloud"></i> 语音识别',
         value: 'Azure',
         cls: 'ok',
       });
     } else {
       rows.push({
-        label: '<i class="fas fa-microphone"></i> Speech',
-        value: 'Skipped (configure later)',
+        label: '<i class="fas fa-microphone"></i> 语音识别',
+        value: '已跳过（稍后配置）',
         cls: 'skip',
       });
     }
     rows.push({
-      label: '<i class="fas fa-file-lines"></i> Config saved to',
+      label: '<i class="fas fa-file-lines"></i> 配置保存于',
       value: 'llm-providers.json',
       cls: 'ok',
     });
@@ -672,11 +672,11 @@
       // Lightly nudge the user
       if (name === 'apikey') {
         const hintByProvider = {
-          gemini: 'Enter a Gemini API key',
-          openai: 'Enter an OpenAI API key',
-          'openai-compatible': 'Enter key, model, and base URL',
+          gemini: '请输入 Gemini API 密钥',
+          openai: '请输入 OpenAI API 密钥',
+          'openai-compatible': '请填写密钥、模型和接口地址',
         };
-        setKeyStatus('error', hintByProvider[state.activeProvider] || 'Enter provider credentials');
+        setKeyStatus('error', hintByProvider[state.activeProvider] || '请填写服务商凭据');
       }
       return;
     }
@@ -695,10 +695,10 @@
       const savePromise = window.electronAPI.saveSettings({
         activeProvider: state.activeProvider,
         providers: state.providers,
-      }).catch((e) => { surfaceError('saveSettings IPC failed: ' + (e && e.message)); return null; });
+      }).catch((e) => { surfaceError('保存请求失败：' + (e && e.message)); return null; });
       const timeoutGuard = new Promise((resolve) => setTimeout(() => resolve({
         success: false,
-        error: 'Save timed out: main process did not respond in 8s (see terminal [SAVE] logs)'
+        error: '保存超时：主进程 8 秒未响应（请查看终端 [SAVE] 日志）'
       }), 8000));
       const r = await Promise.race([savePromise, timeoutGuard]);
       console.log('[onboarding] save result', r && { success: r.success, error: r.error });
@@ -821,7 +821,7 @@
     btn.type = 'button';
     btn.className = 'btn primary';
     btn.style.marginTop = '12px';
-    btn.innerHTML = '<i class="fas fa-download"></i> Install Whisper now';
+    btn.innerHTML = '<i class="fas fa-download"></i> 立即安装 Whisper';
     btn.addEventListener('click', runWhisperInstall);
     document.querySelector('[data-screen="whisper"]').appendChild(btn);
   }
@@ -848,11 +848,11 @@
       }
       if (s.activeConfigured) {
         state.geminiConfigured = true;
-        setKeyStatus('success', 'Already configured — click Continue');
+        setKeyStatus('success', '已配置 —— 点击继续');
         // Show "configured" placeholder on each API key field
         Object.keys(providerInputs).forEach((pid) => {
           const apiKeyEl = providerInputs[pid] && providerInputs[pid].apiKey;
-          if (apiKeyEl) apiKeyEl.placeholder = '•••••••••••••••• (already set)';
+          if (apiKeyEl) apiKeyEl.placeholder = '••••••••••••••••（已设置）';
         });
       }
       refreshProviderVisibility();

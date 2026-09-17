@@ -1,0 +1,59 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]: OpenCluely
+    - generic [ref=e6]: Step 2 of 4
+  - generic [ref=e12]:
+    - text:     
+    - generic [ref=e35]:
+      - heading "Configure AI Provider" [level=1] [ref=e36]
+      - paragraph [ref=e37]: Choose your LLM provider and enter credentials. You can change this later in Settings.
+      - generic [ref=e38]:
+        - generic [ref=e39]: AI Provider
+        - generic [ref=e40]:
+          - generic: 
+          - combobox "AI Provider" [ref=e41] [cursor=pointer]:
+            - option "Google Gemini" [selected]
+            - option "OpenAI"
+            - option "OpenAI Compatible"
+          - generic: 
+      - generic [ref=e42]:
+        - generic [ref=e43]:
+          - generic [ref=e44]: Gemini API Key
+          - generic [ref=e45]:
+            - generic [ref=e46]: 
+            - textbox "Gemini API Key" [ref=e47]:
+              - /placeholder: AIza…
+            - button "" [ref=e48] [cursor=pointer]
+        - generic [ref=e50]:
+          - generic [ref=e51]: Gemini Model
+          - generic [ref=e52]:
+            - generic [ref=e53]: 
+            - textbox "Gemini Model" [ref=e54]:
+              - /placeholder: gemini-3.1-flash-lite
+              - text: gemini-3.1-flash-lite
+      - text:       
+      - generic [ref=e55]:
+        - generic [ref=e56]:
+          - text: Don't have one? Get a free key at
+          - link "aistudio.google.com/apikey" [ref=e57] [cursor=pointer]:
+            - /url: https://aistudio.google.com/apikey
+          - text: . Keys are stored locally — never sent anywhere except Google.
+        - text: 
+    - text:        Install output will appear here…    Install output will appear here…   
+  - generic [ref=e58]:
+    - button " Back" [ref=e59] [cursor=pointer]:
+      - generic [ref=e60]: 
+      - text: Back
+    - button "Continue " [ref=e62] [cursor=pointer]:
+      - text: Continue
+      - generic [ref=e63]: 
+  - generic [ref=e29]:
+    - text: Built by
+    - link [ref=e30] [cursor=pointer]:
+      - /url: https://techycsr.dev
+      - strong [ref=e31]: "@TechyCSR"
+    - generic [ref=e32]: ·
+    - link " GitHub" [ref=e33] [cursor=pointer]:
+      - /url: https://github.com/TechyCSR/OpenCluely
+      - generic [ref=e34]: 
+      - text: GitHub

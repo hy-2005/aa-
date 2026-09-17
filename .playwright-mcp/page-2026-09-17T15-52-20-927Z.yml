@@ -1,0 +1,33 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]: OpenCluely
+    - generic [ref=e6]: Step 1 of 4
+  - generic [ref=e12]:
+    - generic [ref=e14]:
+      - generic [ref=e15]: 
+      - heading "Welcome to OpenCluely" [level=1] [ref=e17]
+      - paragraph [ref=e18]: Your AI-powered interview & problem-solving copilot. Let's get you set up in about a minute.
+      - generic [ref=e19]:
+        - generic [ref=e20]:
+          - generic [ref=e21]: 
+          - text: Live answers
+        - generic [ref=e22]:
+          - generic [ref=e23]: 
+          - text: Voice input
+        - generic [ref=e24]:
+          - generic [ref=e25]: 
+          - text: Local & private
+      - button "Get Started " [ref=e26] [cursor=pointer]:
+        - text: Get Started
+        - generic [ref=e27]: 
+    - text:                     Install output will appear here…    Install output will appear here…   
+  - generic [ref=e29]:
+    - text: Built by
+    - link [ref=e30] [cursor=pointer]:
+      - /url: https://techycsr.dev
+      - strong [ref=e31]: "@TechyCSR"
+    - generic [ref=e32]: ·
+    - link " GitHub" [ref=e33] [cursor=pointer]:
+      - /url: https://github.com/TechyCSR/OpenCluely
+      - generic [ref=e34]: 
+      - text: GitHub

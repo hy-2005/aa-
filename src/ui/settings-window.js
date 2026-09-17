@@ -77,17 +77,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const testStatus = document.getElementById('llmConnectionStatus');
     if (testLlmBtn) {
         testLlmBtn.addEventListener('click', async () => {
-            testStatus.textContent = 'Testing...';
+            testStatus.textContent = '测试中…';
             try {
                 if (window.electronAPI && window.electronAPI.testGeminiConnection) {
                     const r = await window.electronAPI.testGeminiConnection();
                     if (r && r.success) {
-                        testStatus.textContent = '✓ Connected (' + (r.latency || 0) + 'ms)';
+                        testStatus.textContent = '✓ 连接成功（' + (r.latency || 0) + 'ms）';
                     } else {
-                        testStatus.textContent = '✗ ' + (r && r.error || 'Failed');
+                        testStatus.textContent = '✗ ' + (r && r.error || '连接失败');
                     }
                 } else {
-                    testStatus.textContent = 'Test API not available';
+                    testStatus.textContent = '测试接口不可用';
                 }
             } catch (e) {
                 testStatus.textContent = '✗ ' + e.message;
@@ -246,7 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (r && r.success === false && r.error) {
                     saveStatus.textContent = '⚠ ' + r.error;
                 } else {
-                    saveStatus.textContent = '✓ Saved';
+                    saveStatus.textContent = '✓ 已保存';
                 }
                 clearTimeout(saveStatus._timer);
                 saveStatus._timer = setTimeout(() => { saveStatus.textContent = ''; }, 6000);
@@ -366,9 +366,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!iconGrid) return;
 
         const icons = [
-            { key: 'terminal', name: 'Terminal', src: './assests/icons/terminal.png' },
-            { key: 'activity', name: 'Activity', src: './assests/icons/activity.png' },
-            { key: 'settings', name: 'Settings', src: './assests/icons/settings.png' }
+            { key: 'terminal', name: '终端', src: './assests/icons/terminal.png' },
+            { key: 'activity', name: '活动', src: './assests/icons/activity.png' },
+            { key: 'settings', name: '设置', src: './assests/icons/settings.png' }
         ];
 
         iconGrid.innerHTML = '';

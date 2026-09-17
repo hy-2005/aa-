@@ -2,7 +2,7 @@ const logger = require('../../core/logger').createServiceLogger('LLMErrors');
 
 class NoApiKeyError extends Error {
   constructor(providerId) {
-    super(`No API key configured for provider "${providerId}". Open Settings and add a key.`);
+    super(`未配置服务商 "${providerId}" 的 API 密钥，请打开设置添加。`);
     this.name = 'NoApiKeyError';
     this.provider = providerId;
     this.retryable = false;
@@ -11,7 +11,7 @@ class NoApiKeyError extends Error {
 
 class ImageNotSupportedError extends Error {
   constructor(providerId) {
-    super(`Image analysis is not supported by provider "${providerId}". Switch to Gemini or OpenAI in Settings.`);
+    super(`服务商 "${providerId}" 不支持图片分析，请在设置中切换到 Gemini 或 OpenAI。`);
     this.name = 'ImageNotSupportedError';
     this.provider = providerId;
     this.retryable = false;
@@ -20,7 +20,7 @@ class ImageNotSupportedError extends Error {
 
 class StreamNotSupportedError extends Error {
   constructor(providerId) {
-    super(`Streaming is not supported by provider "${providerId}".`);
+    super(`服务商 "${providerId}" 不支持流式输出。`);
     this.name = 'StreamNotSupportedError';
     this.provider = providerId;
     this.retryable = false;
@@ -97,24 +97,24 @@ function _friendlyTestError(rawError, providerId, analysis) {
   const raw = (rawError && rawError.message || '').toLowerCase();
 
   if (type === 'NETWORK_ERROR' || raw.includes('fetch failed') || raw.includes('enotfound')) {
-    return `Cannot reach ${providerId} servers. Check your internet connection.`;
+    return `无法连接 ${providerId} 服务器，请检查网络连接。`;
   }
   if (type === 'AUTH_ERROR' || raw.includes('api key') || raw.includes('401') || raw.includes('403')) {
-    return `Invalid API key for ${providerId}. Double-check the key in Settings.`;
+    return `${providerId} 的 API 密钥无效，请在设置中核对密钥。`;
   }
   if (type === 'RATE_LIMIT_ERROR' || raw.includes('429') || raw.includes('quota')) {
-    return `Rate limit or quota exceeded for ${providerId}. Wait or check your billing.`;
+    return `${providerId} 限流或配额已用尽，请稍后再试或检查账单。`;
   }
   if (type === 'MODEL_ERROR' || (raw.includes('model') && raw.includes('not found'))) {
-    return `The configured model for ${providerId} is unavailable. Try a different model in Settings.`;
+    return `${providerId} 配置的模型不可用，请在设置中更换模型。`;
   }
   if (type === 'TIMEOUT_ERROR' || raw.includes('timeout') || raw.includes('timed out')) {
-    return `${providerId} did not respond within the timeout. Check the base URL and your network.`;
+    return `${providerId} 超时未响应，请检查接口地址和网络。`;
   }
   if (raw.includes('503') || raw.includes('unavailable') || raw.includes('high demand')) {
-    return `${providerId} is experiencing high demand. Please wait and try again.`;
+    return `${providerId} 服务繁忙，请稍后再试。`;
   }
-  return (rawError && rawError.message) || 'Connection failed';
+  return (rawError && rawError.message) || '连接失败';
 }
 
 /**
@@ -135,7 +135,7 @@ function withTimeout(promise, ms, providerId, label) {
     timer = setTimeout(() => {
       resolve({
         success: false,
-        error: `${providerId} ${label || 'request'} timed out after ${ms}ms. Check your base URL and network.`,
+        error: `${providerId} ${label || '请求'}在 ${ms}ms 后超时，请检查接口地址和网络。`,
         errorType: 'TIMEOUT_ERROR',
         timedOut: true
       });

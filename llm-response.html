@@ -430,7 +430,7 @@
         <!-- Loading State -->
         <div id="loading" class="loading">
             <div class="loading-compact">
-                <span class="text-gray-300 text-sm font-medium mr-2">Analyzing</span>
+                <span class="text-gray-300 text-sm font-medium mr-2">分析中</span>
                 <div class="dots-container">
                     <div class="bouncing-dot"></div>
                     <div class="bouncing-dot"></div>
@@ -794,7 +794,7 @@
                     if (ok) {
                         btn.classList.add('copied');
                         const original = btn.textContent;
-                        btn.textContent = 'Copied';
+                        btn.textContent = '已复制';
                         setTimeout(() => { btn.classList.remove('copied'); btn.textContent = original || 'Copy'; }, 1200);
                     }
                 } catch (err) { console.warn('Copy failed', err); }
@@ -811,7 +811,7 @@
                 const text = code ? code.textContent : pre.textContent;
                 const btn = document.createElement('button');
                 btn.className = 'copy-btn';
-                btn.textContent = 'Copy';
+                btn.textContent = '复制';
                 attachCopy(btn, text || '');
                 pre.style.position = 'relative';
                 pre.appendChild(btn);
@@ -842,7 +842,7 @@
             codeContainer.innerHTML = '';
 
             if (codeBlocks.length === 0) {
-                codeContainer.innerHTML = '<div class="no-code">No code examples found</div>';
+                codeContainer.innerHTML = '<div class="no-code">未找到代码示例</div>';
             } else {
                 codeBlocks.forEach((block, index) => {
                     const codeBlock = document.createElement('div');
@@ -857,7 +857,7 @@
                     pre.style.position = 'relative';
                     const btn = document.createElement('button');
                     btn.className = 'copy-btn';
-                    btn.textContent = 'Copy';
+                    btn.textContent = '复制';
                     attachCopy(btn, block.code || '');
                     pre.appendChild(btn);
 
@@ -895,7 +895,7 @@
                 const text = code ? code.textContent : pre.textContent;
                 const btn = document.createElement('button');
                 btn.className = 'copy-btn';
-                btn.textContent = 'Copy';
+                btn.textContent = '复制';
                 attachCopy(btn, text || '');
                 pre.style.position = 'relative';
                 pre.appendChild(btn);

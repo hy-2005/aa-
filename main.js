@@ -1733,7 +1733,7 @@ class ApplicationController {
         let providerWarning = null;
         const validateTarget = (pid, t) => {
           if (!t.apiKey || !String(t.apiKey).trim()) {
-            return `"${pid}" requires an API key. The key you entered was saved, but the active provider was NOT switched — fill in the key first.`;
+            return `"${pid}" 需要 API 密钥。你输入的其他内容已保存，但当前服务商未切换 —— 请先填写密钥。`;
           }
           if (pid === 'openai-compatible') {
             // Be lenient with a bare host ("api.deepseek.com/v1") — assume
@@ -1745,10 +1745,10 @@ class ApplicationController {
               t.baseUrl = 'https://' + String(t.baseUrl).trim();
             }
             if (!t.baseUrl || !t.model) {
-              return 'OpenAI Compatible requires both baseUrl and model. Your key was saved, but the active provider was NOT switched.';
+              return 'OpenAI 兼容模式需要同时填写接口地址（Base URL）和模型。密钥已保存，但当前服务商未切换。';
             }
             try { new URL(t.baseUrl); }
-            catch (_) { return 'OpenAI Compatible baseUrl is not a valid URL. Your key was saved, but the active provider was NOT switched.'; }
+            catch (_) { return '接口地址（Base URL）不是有效的 URL。密钥已保存，但当前服务商未切换。'; }
           }
           return null;
         };

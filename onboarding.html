@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Welcome to OpenCluely</title>
+    <title>欢迎使用 OpenCluely</title>
     <link rel="stylesheet" href="./assests/vendor/fontawesome/all.min.css">
     <style>
         *, *::before, *::after {
@@ -506,7 +506,7 @@
             word-break: break-word;
         }
         .install-log:empty::before {
-            content: "Install output will appear here…";
+            content: "安装输出将显示在这里…";
             color: var(--text-faint);
             font-style: italic;
         }
@@ -748,7 +748,7 @@
                 <div class="brand-dot"></div>
                 OpenCluely
             </div>
-            <div class="step-badge" id="stepBadge">Step 1 of 4</div>
+            <div class="step-badge" id="stepBadge">第 1 / 4 步</div>
         </div>
 
         <!-- ── Stepper ── -->
@@ -766,37 +766,37 @@
             <section class="screen active" data-screen="welcome">
                 <div class="hero">
                     <div class="hero-logo"><i class="fas fa-bolt"></i></div>
-                    <h1>Welcome to OpenCluely</h1>
+                    <h1>欢迎使用 OpenCluely</h1>
                     <p class="tagline">
-                        Your AI-powered interview &amp; problem-solving copilot.
-                        Let's get you set up in about a minute.
+                        你的 AI 面试与解题助手。
+                        一分钟完成初始设置。
                     </p>
                     <div class="feature-row">
-                        <div class="feature-pill"><i class="fas fa-keyboard"></i> Live answers</div>
-                        <div class="feature-pill"><i class="fas fa-microphone"></i> Voice input</div>
-                        <div class="feature-pill"><i class="fas fa-shield-halved"></i> Local &amp; private</div>
+                        <div class="feature-pill"><i class="fas fa-keyboard"></i> 实时解答</div>
+                        <div class="feature-pill"><i class="fas fa-microphone"></i> 语音输入</div>
+                        <div class="feature-pill"><i class="fas fa-shield-halved"></i> 本地私密</div>
                     </div>
                     <button class="btn primary hero-cta" id="heroCtaBtn" type="button">
-                        Get Started <i class="fas fa-arrow-right"></i>
+                        开始使用 <i class="fas fa-arrow-right"></i>
                     </button>
                 </div>
             </section>
 
             <!-- SCREEN 2: Configure AI Provider -->
             <section class="screen" data-screen="apikey">
-                <h1>Configure AI Provider</h1>
+                <h1>配置 AI 服务商</h1>
                 <p class="subtitle">
-                    Choose your LLM provider and enter credentials. You can change this later in Settings.
+                    选择你的大模型服务商并填写凭据。之后可以随时在「设置」中修改。
                 </p>
 
                 <div class="field">
-                    <label for="activeProvider">AI Provider</label>
+                    <label for="activeProvider">AI 服务商</label>
                     <div class="select-wrap">
                         <i class="fas fa-robot icon"></i>
                         <select id="activeProvider" class="input provider-select">
                             <option value="gemini">Google Gemini</option>
                             <option value="openai">OpenAI</option>
-                            <option value="openai-compatible">OpenAI Compatible</option>
+                            <option value="openai-compatible">OpenAI 兼容（MiniMax / DeepSeek / Ollama / 自定义）</option>
                         </select>
                         <i class="fas fa-chevron-down select-caret"></i>
                     </div>
@@ -805,7 +805,7 @@
                 <!-- Gemini -->
                 <div class="field provider-fields" data-provider="gemini">
                     <div class="field">
-                        <label for="geminiKey">Gemini API Key</label>
+                        <label for="geminiKey">Gemini API 密钥</label>
                         <div class="input-wrap">
                             <i class="fas fa-key icon"></i>
                             <input
@@ -816,13 +816,13 @@
                                 autocomplete="off"
                                 spellcheck="false"
                             >
-                            <button class="toggle-vis" data-toggle="geminiKey" type="button" title="Show / hide">
+                            <button class="toggle-vis" data-toggle="geminiKey" type="button" title="显示 / 隐藏">
                                 <i class="fas fa-eye"></i>
                             </button>
                         </div>
                     </div>
                     <div class="field">
-                        <label for="geminiModel">Gemini Model</label>
+                        <label for="geminiModel">Gemini 模型</label>
                         <div class="input-wrap">
                             <i class="fas fa-microchip icon"></i>
                             <input
@@ -840,7 +840,7 @@
                 <!-- OpenAI -->
                 <div class="field provider-fields" data-provider="openai" style="display:none;">
                     <div class="field">
-                        <label for="openaiKey">OpenAI API Key</label>
+                        <label for="openaiKey">OpenAI API 密钥</label>
                         <div class="input-wrap">
                             <i class="fas fa-key icon"></i>
                             <input
@@ -851,13 +851,13 @@
                                 autocomplete="off"
                                 spellcheck="false"
                             >
-                            <button class="toggle-vis" data-toggle="openaiKey" type="button" title="Show / hide">
+                            <button class="toggle-vis" data-toggle="openaiKey" type="button" title="显示 / 隐藏">
                                 <i class="fas fa-eye"></i>
                             </button>
                         </div>
                     </div>
                     <div class="field">
-                        <label for="openaiModel">OpenAI Model</label>
+                        <label for="openaiModel">OpenAI 模型</label>
                         <div class="input-wrap">
                             <i class="fas fa-microchip icon"></i>
                             <input
@@ -875,7 +875,7 @@
                 <!-- OpenAI Compatible -->
                 <div class="field provider-fields" data-provider="openai-compatible" style="display:none;">
                     <div class="field">
-                        <label for="openaiCompatKey">API Key</label>
+                        <label for="openaiCompatKey">API 密钥</label>
                         <div class="input-wrap">
                             <i class="fas fa-key icon"></i>
                             <input
@@ -886,34 +886,34 @@
                                 autocomplete="off"
                                 spellcheck="false"
                             >
-                            <button class="toggle-vis" data-toggle="openaiCompatKey" type="button" title="Show / hide">
+                            <button class="toggle-vis" data-toggle="openaiCompatKey" type="button" title="显示 / 隐藏">
                                 <i class="fas fa-eye"></i>
                             </button>
                         </div>
                     </div>
                     <div class="field">
-                        <label for="openaiCompatModel">Model</label>
+                        <label for="openaiCompatModel">模型</label>
                         <div class="input-wrap">
                             <i class="fas fa-microchip icon"></i>
                             <input
                                 type="text"
                                 id="openaiCompatModel"
                                 class="input"
-                                placeholder="deepseek-chat"
+                                placeholder="如 MiniMax-M3 / deepseek-chat"
                                 autocomplete="off"
                                 spellcheck="false"
                             >
                         </div>
                     </div>
                     <div class="field">
-                        <label for="openaiCompatBaseUrl">Base URL</label>
+                        <label for="openaiCompatBaseUrl">接口地址（Base URL）</label>
                         <div class="input-wrap">
                             <i class="fas fa-link icon"></i>
                             <input
                                 type="text"
                                 id="openaiCompatBaseUrl"
                                 class="input"
-                                placeholder="https://api.deepseek.com/v1"
+                                placeholder="如 https://api.minimax.cn/v1"
                                 autocomplete="off"
                                 spellcheck="false"
                             >
@@ -923,15 +923,15 @@
 
                 <div class="field">
                     <div class="hint" id="providerHint">
-                        Don't have one? Get a free key at
+                        还没有密钥？去
                         <a id="providerKeyLink" href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
                             aistudio.google.com/apikey
-                        </a>.
-                        Keys are stored locally — never sent anywhere except your chosen provider.
+                        </a>
+                        免费获取。密钥仅保存在本地，只会发送给你选择的服务商。
                     </div>
                     <div id="keyStatus" class="status-pill idle" style="display:none;">
                         <i class="fas fa-circle-info"></i>
-                        <span class="text">Enter your key above</span>
+                        <span class="text">在上方输入你的密钥</span>
                     </div>
                 </div>
 
@@ -939,19 +939,19 @@
 
             <!-- SCREEN 3: Speech -->
             <section class="screen" data-screen="speech">
-                <h1>Speech Recognition</h1>
+                <h1>语音识别</h1>
                 <p class="subtitle">
-                    How would you like to capture audio? You can change this later in Settings.
+                    你想如何采集语音？之后可以随时在「设置」中修改。
                 </p>
 
                 <div class="choice-list" id="speechChoices">
                     <div class="choice-card" data-value="whisper">
                         <div class="choice-icon"><i class="fas fa-microphone"></i></div>
                         <div class="choice-text">
-                            <div class="choice-title">Local Whisper</div>
+                            <div class="choice-title">本地 Whisper</div>
                             <div class="choice-desc">
-                                Run OpenAI Whisper on your own machine. Free, offline, and private —
-                                no data leaves your computer. Requires Python.
+                                在你自己的电脑上运行 Whisper。免费、离线、私密 ——
+                                数据不出本机。需要 Python。
                             </div>
                         </div>
                         <div class="choice-radio"></div>
@@ -959,10 +959,10 @@
                     <div class="choice-card" data-value="azure">
                         <div class="choice-icon"><i class="fas fa-cloud"></i></div>
                         <div class="choice-text">
-                            <div class="choice-title">Azure Speech</div>
+                            <div class="choice-title">Azure 语音</div>
                             <div class="choice-desc">
-                                Microsoft Azure cloud STT. Needs an Azure Speech key + region.
-                                High accuracy, requires internet.
+                                微软 Azure 云端语音识别。需要 Azure 密钥 + 区域。
+                                识别精度高，需要联网。
                             </div>
                         </div>
                         <div class="choice-radio"></div>
@@ -970,9 +970,9 @@
                     <div class="choice-card" data-value="skip">
                         <div class="choice-icon"><i class="fas fa-forward"></i></div>
                         <div class="choice-text">
-                            <div class="choice-title">Skip for now</div>
+                            <div class="choice-title">暂时跳过</div>
                             <div class="choice-desc">
-                                Set this up later in Settings. You can still type messages into the chat window.
+                                稍后在「设置」中配置。跳过后仍可在聊天窗口中打字提问。
                             </div>
                         </div>
                         <div class="choice-radio"></div>
@@ -982,45 +982,45 @@
                 <!-- Inline Azure key entry (revealed only if Azure selected) -->
                 <div id="azurePanel" style="display:none; margin-top: 14px;">
                     <div class="field">
-                        <label for="azureKey">Azure Speech Key</label>
+                        <label for="azureKey">Azure 语音密钥</label>
                         <div class="input-wrap">
                             <i class="fas fa-key icon"></i>
-                            <input type="password" id="azureKey" class="input" placeholder="Azure key" autocomplete="off">
+                            <input type="password" id="azureKey" class="input" placeholder="Azure 密钥" autocomplete="off">
                         </div>
                     </div>
                     <div class="field">
-                        <label for="azureRegion">Azure Region</label>
+                        <label for="azureRegion">Azure 区域</label>
                         <div class="input-wrap">
                             <i class="fas fa-globe icon"></i>
                             <input type="text" id="azureRegion" class="input" placeholder="eastus" autocomplete="off">
                         </div>
-                        <div class="hint">e.g. <code>eastus</code>, <code>westus2</code>, <code>westeurope</code></div>
+                        <div class="hint">例如 <code>eastus</code>、<code>westus2</code>、<code>westeurope</code></div>
                     </div>
                 </div>
             </section>
 
             <!-- SCREEN 4: Whisper install (only shown when whisper chosen) -->
             <section class="screen" data-screen="whisper">
-                <h1>Local Whisper Setup</h1>
+                <h1>本地 Whisper 配置</h1>
                 <p class="subtitle" id="whisperSubtitle">
-                    Detecting your Whisper installation…
+                    正在检测你的 Whisper 安装情况…
                 </p>
 
                 <div class="detect-row" id="detectRow">
                     <div>
-                        <div style="font-size:11px; color: var(--text-faint); margin-bottom:2px;">Detected command</div>
-                        <code id="detectCmd">scanning…</code>
+                        <div style="font-size:11px; color: var(--text-faint); margin-bottom:2px;">检测到的命令</div>
+                        <code id="detectCmd">扫描中…</code>
                     </div>
                     <div id="detectStatus" class="status-pill idle">
                         <i class="fas fa-circle-notch fa-spin"></i>
-                        <span class="text">Probing</span>
+                        <span class="text">检测中</span>
                     </div>
                 </div>
 
                 <div class="install-card" id="installCard">
                     <div class="install-title">
                         <i class="fas fa-circle-info"></i>
-                        <span id="installCardTitle">What we'll do</span>
+                        <span id="installCardTitle">接下来会做什么</span>
                     </div>
                     <ul class="install-list" id="installList"></ul>
                 </div>
@@ -1030,23 +1030,23 @@
 
             <!-- SCREEN 5: Whisper Model Download -->
             <section class="screen" data-screen="model-download">
-                <h1>Whisper Model Download</h1>
+                <h1>Whisper 模型下载</h1>
                 <p class="subtitle" id="modelDownloadSubtitle">
-                    The Whisper transcription model needs to be downloaded before first use.
+                    Whisper 语音模型需要在首次使用前下载。
                 </p>
 
                 <div class="install-card" id="modelDownloadCard">
                     <div class="install-title">
                         <i class="fas fa-circle-info"></i>
-                        <span id="modelDownloadTitle">Choose when to download the model</span>
+                        <span id="modelDownloadTitle">选择何时下载模型</span>
                     </div>
                     <div class="choice-list" id="modelDownloadChoices">
                         <div class="choice-card" data-value="now">
                             <div class="choice-icon"><i class="fas fa-download"></i></div>
                             <div class="choice-text">
-                                <div class="choice-title">Download Now</div>
+                                <div class="choice-title">立即下载</div>
                                 <div class="choice-desc">
-                                    Download the <code>turbo</code> model (~150 MB) now so it's ready when you need it. Recommended.
+                                    立即下载 <code>turbo</code> 模型（约 150 MB），随时可用。推荐。
                                 </div>
                             </div>
                             <div class="choice-radio"></div>
@@ -1054,9 +1054,9 @@
                         <div class="choice-card" data-value="later">
                             <div class="choice-icon"><i class="fas fa-clock"></i></div>
                             <div class="choice-text">
-                                <div class="choice-title">Download on First Use</div>
+                                <div class="choice-title">首次使用时下载</div>
                                 <div class="choice-desc">
-                                    Download the model automatically when you first use voice input. First transcription will take longer.
+                                    首次使用语音输入时自动下载模型。第一次转写会花费更长时间。
                                 </div>
                             </div>
                             <div class="choice-radio"></div>
@@ -1071,9 +1071,9 @@
             <section class="screen" data-screen="finish">
                 <div class="finish-card">
                     <div class="check"><i class="fas fa-check"></i></div>
-                    <h1>You're all set!</h1>
+                    <h1>设置完成！</h1>
                     <p class="subtitle" style="margin-bottom: 18px;">
-                        Here's what we configured. You can change any of this later in Settings.
+                        以下是你的配置摘要，之后可以随时在「设置」中修改。
                     </p>
 
                     <div class="summary-list" id="summaryList">
@@ -1082,17 +1082,17 @@
 
                     <div class="star-card">
                         <div class="star-icon"><i class="fas fa-star"></i></div>
-                        <h3>Enjoying OpenCluely?</h3>
+                        <h3>觉得 OpenCluely 好用吗？</h3>
                         <p>
-                            If this saved you time in an interview or a coding session,
-                            a quick ⭐ on GitHub helps others find it.
+                            如果它在面试或刷题时帮到了你，
+                            去 GitHub 点个 ⭐ 可以让更多人发现它。
                         </p>
                         <div class="actions">
                             <button class="btn primary" id="starBtn" type="button">
-                                <i class="fab fa-github"></i> Star on GitHub
+                                <i class="fab fa-github"></i> 去 GitHub 点星
                             </button>
                             <button class="btn ghost" id="skipStarBtn" type="button">
-                                Maybe later
+                                以后再说
                             </button>
                         </div>
                     </div>
@@ -1103,14 +1103,14 @@
         <!-- ── Navigation ── -->
         <div class="nav">
             <button class="btn ghost" id="backBtn" type="button" style="visibility:hidden;">
-                <i class="fas fa-arrow-left"></i> Back
+                <i class="fas fa-arrow-left"></i> 上一步
             </button>
             <div class="nav-right">
                 <button class="btn ghost" id="skipBtn" type="button" style="display:none;">
-                    Skip
+                    跳过
                 </button>
                 <button class="btn primary" id="nextBtn" type="button">
-                    Get started <i class="fas fa-arrow-right"></i>
+                    开始使用 <i class="fas fa-arrow-right"></i>
                 </button>
             </div>
         </div>
@@ -1118,7 +1118,7 @@
         <!-- ── Footer ── -->
         <div class="footer">
             <div class="dev">
-                Built by <a href="https://techycsr.dev" target="_blank" rel="noreferrer"><strong>@TechyCSR</strong></a>
+                由 <a href="https://techycsr.dev" target="_blank" rel="noreferrer"><strong>@TechyCSR</strong></a> 构建
                 <span style="opacity:0.5; margin: 0 8px;">·</span>
                 <a href="https://github.com/TechyCSR/OpenCluely" target="_blank" rel="noreferrer">
                     <i class="fab fa-github"></i> GitHub
