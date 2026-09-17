@@ -20,7 +20,29 @@ class FirstRunManager {
     this.cwd = options.cwd || process.cwd();
     this.envPath = options.envPath || path.join(this.cwd, '.env');
     this.sentinelPath = options.sentinelPath || path.join(this.cwd, '.opencluely-firstrun-completed');
+    // Canonical path of the providers JSON — passed in from main.js so this
+    // module reads the exact file the store singleton uses. (Deriving it
+    // from envPath could point at the project dir in dev while the store
+    // lives in userData — and calling providersStore.init() with that path
+    // would silently re-point the singleton at the wrong directory.)
+    this.providersJsonPath = options.providersJsonPath ||
+      path.join(path.dirname(this.envPath), 'llm-providers.json');
     this.logger = options.logger || console;
+  }
+
+  // Read the providers JSON directly from disk. Deliberately does NOT touch
+  // the providers.store singleton — see the constructor comment.
+  _readProvidersState() {
+    try {
+      const raw = fs.readFileSync(this.providersJsonPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || !parsed.providers) {
+        return { activeProvider: 'gemini', providers: {} };
+      }
+      return parsed;
+    } catch (_) {
+      return { activeProvider: 'gemini', providers: {} };
+    }
   }
 
   /**
@@ -29,11 +51,9 @@ class FirstRunManager {
    */
   needsOnboarding() {
     if (!fs.existsSync(this.sentinelPath)) return true;
-    const jsonPath = path.join(path.dirname(this.envPath), 'llm-providers.json');
-    if (!fs.existsSync(jsonPath)) return true;
+    if (!fs.existsSync(this.providersJsonPath)) return true;
     try {
-      const providersStore = require('../services/llm/providers.store');
-      const state = providersStore.init({ userDataDir: path.dirname(this.envPath) });
+      const state = this._readProvidersState();
       const active = state.providers[state.activeProvider];
       return !active || !active.apiKey || !String(active.apiKey).trim();
     } catch (_) {
@@ -84,18 +104,12 @@ class FirstRunManager {
    * Get a snapshot of the current setup state for UI / logging.
    */
   getStatus() {
-    let providerState;
-    try {
-      const providersStore = require('../services/llm/providers.store');
-      providerState = providersStore.init({ userDataDir: path.dirname(this.envPath) });
-    } catch (_) {
-      providerState = { activeProvider: 'gemini', providers: { gemini: { apiKey: '' } } };
-    }
+    const providerState = this._readProvidersState();
     const active = providerState.providers[providerState.activeProvider] || {};
     return {
       envExists: fs.existsSync(this.envPath),
       sentinelExists: fs.existsSync(this.sentinelPath),
-      jsonExists: fs.existsSync(path.join(path.dirname(this.envPath), 'llm-providers.json')),
+      jsonExists: fs.existsSync(this.providersJsonPath),
       activeProvider: providerState.activeProvider,
       activeConfigured: !!(active.apiKey && String(active.apiKey).trim()),
       azureConfigured: !!(this._readEnv().AZURE_SPEECH_KEY || '').trim() && !!(this._readEnv().AZURE_SPEECH_REGION || '').trim(),

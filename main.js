@@ -175,6 +175,9 @@ class ApplicationController {
       // and that persistEnvUpdates() writes to.
       envPath: ENV_PATH,
       sentinelPath: path.join(app.getPath("userData"), ".opencluely-firstrun-completed"),
+      // Canonical providers JSON — the exact file the store singleton
+      // reads/writes, so first-run checks never look at a different copy.
+      providersJsonPath: providersStore.getFilePath(),
     });
     // Lazily-initialised in getWhisperInstaller() so tests can mock
     // the constructor without polluting main-process startup.
@@ -1686,6 +1689,13 @@ class ApplicationController {
       }
 
       // ── Provider config (active + all keys) ──
+      // Keys the user typed must NEVER be dropped: always persist the merged
+      // providers. Only the *switch* to a new active provider is conditional —
+      // if the target isn't fully configured we keep the previous active
+      // provider and tell the UI why. (Previously an incomplete target
+      // aborted the entire save, silently discarding every key the user had
+      // entered and leaving llm-providers.json unwritten, which made the
+      // onboarding wizard reappear on every launch.)
       if (settings.providers && typeof settings.providers === 'object') {
         const next = providersStore.load();
         const incoming = settings.providers;
@@ -1697,25 +1707,30 @@ class ApplicationController {
             };
           }
         }
-        // activeProvider 切换：必须确保目标 provider 至少有 key
-        // Use provider-registry as single source of truth so adding a new
-        // provider doesn't require updating this list (avoids drift).
+        // Validate the requested active provider; keep the previous one if
+        // the target is incomplete so the router never points at a dead config.
         const providerRegistry = require('./src/services/llm/provider-registry');
-        if (settings.activeProvider && providerRegistry.isValidProviderId(settings.activeProvider)) {
-          next.activeProvider = settings.activeProvider;
-        }
-        // 校验目标 provider 字段
-        const target = next.providers[next.activeProvider] || {};
-        if (!target.apiKey || !String(target.apiKey).trim()) {
-          logger.warn('Active provider has no API key', { activeProvider: next.activeProvider });
-          return { success: false, error: `Active provider "${next.activeProvider}" requires an API key. Add one in Settings.` };
-        }
-        if (next.activeProvider === 'openai-compatible') {
-          if (!target.baseUrl || !target.model) {
-            return { success: false, error: 'OpenAI Compatible requires both baseUrl and model.' };
+        let providerWarning = null;
+        const validateTarget = (pid, t) => {
+          if (!t.apiKey || !String(t.apiKey).trim()) {
+            return `"${pid}" requires an API key. The key you entered was saved, but the active provider was NOT switched — fill in the key first.`;
           }
-          try { new URL(target.baseUrl); }
-          catch (_) { return { success: false, error: 'OpenAI Compatible baseUrl is not a valid URL.' }; }
+          if (pid === 'openai-compatible') {
+            if (!t.baseUrl || !t.model) {
+              return 'OpenAI Compatible requires both baseUrl and model. Your key was saved, but the active provider was NOT switched.';
+            }
+            try { new URL(t.baseUrl); }
+            catch (_) { return 'OpenAI Compatible baseUrl is not a valid URL. Your key was saved, but the active provider was NOT switched.'; }
+          }
+          return null;
+        };
+        if (settings.activeProvider && providerRegistry.isValidProviderId(settings.activeProvider)) {
+          const requested = settings.activeProvider;
+          const target = next.providers[requested] || {};
+          providerWarning = validateTarget(requested, target);
+          if (!providerWarning) {
+            next.activeProvider = requested;
+          }
         }
         providersStore.save(next);
         // 镜像到 process.env（向后兼容 config.getApiKey）
@@ -1734,7 +1749,11 @@ class ApplicationController {
         catch (e) { logger.warn('Failed to reload LLM router', { error: e.message }); }
         // 触发 LLMService 内部状态重置（兼容老 updateApiKey 调用路径）
         try { llmService.initializeClient(); } catch (_) {}
-        logger.info('LLM provider config updated', { activeProvider: next.activeProvider });
+        logger.info('LLM provider config updated', { activeProvider: next.activeProvider, providerWarning });
+        if (providerWarning) {
+          // Saved, but the requested switch was rejected — surface to the UI.
+          return { success: false, saved: true, activeProvider: next.activeProvider, error: providerWarning };
+        }
       }
 
       // ── Persist provider / API-key fields back to .env ──

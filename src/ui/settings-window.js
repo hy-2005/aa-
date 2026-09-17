@@ -235,7 +235,27 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
 
-        window.api.send('save-settings', settings);
+        // Prefer the invoke bridge so we get the save result back and can
+        // tell the user when a provider switch was rejected (e.g. no key
+        // for the newly selected provider). Fire-and-forget made these
+        // failures invisible, which looked like "settings never save".
+        if (window.electronAPI && window.electronAPI.saveSettings) {
+            window.electronAPI.saveSettings(settings).then((r) => {
+                const saveStatus = document.getElementById('saveStatus');
+                if (!saveStatus) return;
+                if (r && r.success === false && r.error) {
+                    saveStatus.textContent = '⚠ ' + r.error;
+                } else {
+                    saveStatus.textContent = '✓ Saved';
+                }
+                clearTimeout(saveStatus._timer);
+                saveStatus._timer = setTimeout(() => { saveStatus.textContent = ''; }, 6000);
+            }).catch(() => {
+                window.api.send('save-settings', settings);
+            });
+        } else {
+            window.api.send('save-settings', settings);
+        }
     };
 
     const updateSpeechFieldStates = () => {
