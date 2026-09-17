@@ -289,18 +289,21 @@ class WindowManager {
     let browserWindowOptions;
     
     if (type === 'settings') {
-      // Completely minimal settings window - no decorations at all
+      // Settings window. Native-framed + opaque on Windows for the same
+      // IME/TSF main-thread deadlock reason as the onboarding window —
+      // users type API keys here with real IMEs. (macOS keeps the panel
+      // style; the deadlock is Windows/TSF specific.)
       browserWindowOptions = {
         ...baseOptions,
-        frame: false,
-        titleBarStyle: 'hidden',
-        transparent: true,
+        frame: process.platform === 'darwin',
+        titleBarStyle: process.platform === 'darwin' ? 'hidden' : undefined,
+        transparent: process.platform === 'darwin',
         resizable: false,
         minimizable: false,
         maximizable: false,
-        closable: false,
-        hasShadow: false,
-        backgroundColor: '#00000000',
+        closable: true,
+        hasShadow: true,
+        backgroundColor: process.platform === 'darwin' ? '#00000000' : '#101014',
         level: process.platform === 'darwin' ? 'floating' : undefined,
         // Additional macOS flags for better always-on-top behavior
         ...(process.platform === 'darwin' && {
@@ -310,24 +313,23 @@ class WindowManager {
         })
       };
   } else if (type === 'onboarding') {
-      // First-run onboarding wizard — same frameless/panel style as
-      // settings, but closable (X button) and slightly larger.
-      // NOTE: deliberately NOT transparent. The wizard page paints its own
-      // opaque dark background, and transparent + frameless windows are a
-      // known Windows renderer-crash class with real IME input (TSF).
-      // Opaque costs nothing visually and removes that entire failure mode.
+      // First-run onboarding wizard.
+      // NOTE: deliberately NATIVE-FRAMED and opaque. On Windows, IME (TSF)
+      // input runs on the window-owning thread — the Electron main process —
+      // and the frameless+transparent combination is a known main-thread
+      // deadlock there (Windows logs "Application Hang / AppHangB1" and the
+      // user kills the ghosted app). A native frame costs nothing for a
+      // one-time setup dialog and removes the entire failure class.
       browserWindowOptions = {
         ...baseOptions,
-        frame: false,
-        titleBarStyle: 'hidden',
+        frame: true,
         transparent: false,
         resizable: false,
-        minimizable: false,
+        minimizable: true,
         maximizable: false,
         closable: true,
         hasShadow: true,
         backgroundColor: '#0a0a0a',
-        level: process.platform === 'darwin' ? 'floating' : undefined,
         ...(process.platform === 'darwin' && {
           type: 'panel',
           acceptFirstMouse: true,
@@ -906,6 +908,18 @@ class WindowManager {
         logger.debug('Window closed', { type });
         this.windows.delete(type);
       });
+
+      // The settings window now has a native frame (IME/TSF deadlock fix),
+      // so its X button actually closes. showSettings() only shows an
+      // existing window, so intercept close → hide to keep it reusable.
+      if (type === 'settings') {
+        window.on('close', (e) => {
+          if (!window.isDestroyed()) {
+            e.preventDefault();
+            window.hide();
+          }
+        });
+      }
 
       window.on('focus', () => {
         this.activeWindow = type;
