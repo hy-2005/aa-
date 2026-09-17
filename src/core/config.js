@@ -121,6 +121,40 @@ class ConfigManager {
     return process.env[envKey];
   }
 
+  getActiveProviderId() {
+    // 优先读 router 状态；如果 router 没初始化，回落到环境变量
+    try {
+      const router = require('../services/llm/llm-router');
+      if (router.getActiveProviderId && router.getActiveProviderId()) {
+        return router.getActiveProviderId();
+      }
+    } catch (_) {}
+    return process.env.LLM_PROVIDER || 'gemini';
+  }
+
+  getProviderField(providerId, fieldKey) {
+    const envMap = {
+      gemini: { apiKey: 'GEMINI_API_KEY', model: 'GEMINI_MODEL' },
+      openai: { apiKey: 'OPENAI_API_KEY', model: 'OPENAI_MODEL' },
+      'openai-compatible': { apiKey: 'OPENAI_COMPAT_API_KEY', model: 'OPENAI_COMPAT_MODEL', baseUrl: 'OPENAI_COMPAT_BASE_URL' }
+    };
+    const envName = envMap[providerId] && envMap[providerId][fieldKey];
+    return envName ? process.env[envName] : undefined;
+  }
+
+  getAllProviders() {
+    const registry = require('../services/llm/provider-registry');
+    return registry.listProviders().map(p => ({
+      id: p.id,
+      label: p.label,
+      fields: p.fields.map(f => ({
+        ...f,
+        value: this.getProviderField(p.id, f.key) || ''
+      })),
+      supports: p.supports
+    }));
+  }
+
   isFeatureEnabled(feature) {
     return this.get(`features.${feature}`) !== false;
   }
