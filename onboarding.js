@@ -660,15 +660,21 @@
       return;
     }
 
-    // Persist settings on apikey (saved progress so a crash doesn't lose the key)
+    // Persist settings on apikey (saved progress so a crash doesn't lose the key).
+    // If the main process rejected the provider switch (e.g. invalid config),
+    // show why and STAY on this screen — otherwise the wizard would "finish",
+    // write the first-run sentinel, and reopen on the next launch because the
+    // active provider still has no key (the wizard-loop bug).
     if (name === 'apikey' && window.electronAPI) {
-      try {
-        inputsToState();
-        await window.electronAPI.saveSettings({
-          activeProvider: state.activeProvider,
-          providers: state.providers,
-        });
-      } catch (_) { /* surfaced elsewhere */ }
+      inputsToState();
+      const r = await window.electronAPI.saveSettings({
+        activeProvider: state.activeProvider,
+        providers: state.providers,
+      }).catch(() => null);
+      if (r && r.success === false && r.error) {
+        setKeyStatus('error', r.error);
+        return;
+      }
     }
     if (name === 'speech' && window.electronAPI) {
       try {

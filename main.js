@@ -1716,6 +1716,14 @@ class ApplicationController {
             return `"${pid}" requires an API key. The key you entered was saved, but the active provider was NOT switched — fill in the key first.`;
           }
           if (pid === 'openai-compatible') {
+            // Be lenient with a bare host ("api.deepseek.com/v1") — assume
+            // https:// the way browsers do, instead of rejecting. This was
+            // the most common way users got stuck: the wizard rejected the
+            // URL, kept gemini active with no key, and reopened onboarding
+            // on every launch. Mutating `t` persists the normalized URL.
+            if (t.baseUrl && !/^[a-z][a-z0-9+.-]*:\/\//i.test(String(t.baseUrl).trim())) {
+              t.baseUrl = 'https://' + String(t.baseUrl).trim();
+            }
             if (!t.baseUrl || !t.model) {
               return 'OpenAI Compatible requires both baseUrl and model. Your key was saved, but the active provider was NOT switched.';
             }
