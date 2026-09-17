@@ -47,10 +47,26 @@ function _reloadFromStore() {
   }
 
   const config = state.providers[providerId] || {};
-  _activeAdapter = _instantiateAdapter(provider.adapter, {
+  const adapter = _instantiateAdapter(provider.adapter, {
     providerId,
     config
   });
+  // Instantiate-and-forget left every adapter in isInitialized=false after
+  // a plain app restart (initialize was only called on the settings-save
+  // path), so the first screenshot/chat call died with a misleading
+  // "no API key" error even with a fully configured provider. Initialize
+  // eagerly on every load/reload instead.
+  if (adapter && typeof adapter.initialize === 'function') {
+    try {
+      adapter.initialize();
+    } catch (e) {
+      logger.warn('Adapter initialize failed after reload', {
+        providerId,
+        error: e.message
+      });
+    }
+  }
+  _activeAdapter = adapter;
   _activeProviderId = providerId;
 }
 
