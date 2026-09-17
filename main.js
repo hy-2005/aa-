@@ -79,6 +79,44 @@ const logger = require("./src/core/logger").createServiceLogger("MAIN");
 const config = require("./src/core/config");
 const FirstRunManager = require("./src/core/first-run");
 
+// ── Initialize LLM provider storage + router ──
+const providersStore = require("./src/services/llm/providers.store");
+const llmRouter = require("./src/services/llm/llm-router");
+
+const llmProvidersState = providersStore.init({ userDataDir: app.getPath("userData") });
+{
+  const active = llmProvidersState.providers[llmProvidersState.activeProvider] || {};
+  // Mirror active provider fields to process.env so legacy config.getApiKey() calls keep working.
+  if (llmProvidersState.activeProvider === "gemini") {
+    if (active.apiKey) process.env.GEMINI_API_KEY = active.apiKey;
+    if (active.model)  process.env.GEMINI_MODEL  = active.model;
+  } else if (llmProvidersState.activeProvider === "openai") {
+    if (active.apiKey) process.env.OPENAI_API_KEY = active.apiKey;
+    if (active.model)  process.env.OPENAI_MODEL  = active.model;
+  } else if (llmProvidersState.activeProvider === "openai-compatible") {
+    if (active.apiKey)  process.env.OPENAI_COMPAT_API_KEY  = active.apiKey;
+    if (active.model)   process.env.OPENAI_COMPAT_MODEL   = active.model;
+    if (active.baseUrl) process.env.OPENAI_COMPAT_BASE_URL = active.baseUrl;
+  }
+  // Always mirror all provider fields too — non-active keys are still read by config layer
+  // when user switches active provider without re-saving.
+  const allProviders = llmProvidersState.providers;
+  if (allProviders.gemini && allProviders.gemini.apiKey)  process.env.GEMINI_API_KEY  = allProviders.gemini.apiKey;
+  if (allProviders.gemini && allProviders.gemini.model)   process.env.GEMINI_MODEL   = allProviders.gemini.model;
+  if (allProviders.openai && allProviders.openai.apiKey)   process.env.OPENAI_API_KEY  = allProviders.openai.apiKey;
+  if (allProviders.openai && allProviders.openai.model)    process.env.OPENAI_MODEL   = allProviders.openai.model;
+  if (allProviders['openai-compatible']) {
+    if (allProviders['openai-compatible'].apiKey)  process.env.OPENAI_COMPAT_API_KEY  = allProviders['openai-compatible'].apiKey;
+    if (allProviders['openai-compatible'].model)   process.env.OPENAI_COMPAT_MODEL   = allProviders['openai-compatible'].model;
+    if (allProviders['openai-compatible'].baseUrl) process.env.OPENAI_COMPAT_BASE_URL = allProviders['openai-compatible'].baseUrl;
+  }
+  logger.info("LLM providers loaded", {
+    filePath: providersStore.getFilePath(),
+    activeProvider: llmProvidersState.activeProvider
+  });
+}
+llmRouter.init({ providersStore });
+
 // ── Global crash guard ──
 // The speech path spawns external processes (Whisper CLI, and on macOS/Linux
 // the sox/rec/arecord recorders via node-record-lpcm16). A missing recorder
