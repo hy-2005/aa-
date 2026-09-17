@@ -312,17 +312,21 @@ class WindowManager {
   } else if (type === 'onboarding') {
       // First-run onboarding wizard — same frameless/panel style as
       // settings, but closable (X button) and slightly larger.
+      // NOTE: deliberately NOT transparent. The wizard page paints its own
+      // opaque dark background, and transparent + frameless windows are a
+      // known Windows renderer-crash class with real IME input (TSF).
+      // Opaque costs nothing visually and removes that entire failure mode.
       browserWindowOptions = {
         ...baseOptions,
         frame: false,
         titleBarStyle: 'hidden',
-        transparent: true,
+        transparent: false,
         resizable: false,
         minimizable: false,
         maximizable: false,
         closable: true,
         hasShadow: true,
-        backgroundColor: '#00000000',
+        backgroundColor: '#0a0a0a',
         level: process.platform === 'darwin' ? 'floating' : undefined,
         ...(process.platform === 'darwin' && {
           type: 'panel',
