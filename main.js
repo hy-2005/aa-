@@ -1662,6 +1662,11 @@ class ApplicationController {
   }
 
   saveSettings(settings) {
+    // Step-by-step trace: when a save hangs or dies mid-flight we need to
+    // see exactly which step stopped. Never log key values.
+    const SAVE_T0 = Date.now();
+    const saveAt = () => `${Date.now() - SAVE_T0}ms`;
+    logger.info("[SAVE] handler entered", { fields: Object.keys(settings || {}) });
     try {
       // ── In-memory updates + window broadcasts ──
       if (settings.codingLanguage) {
@@ -1740,7 +1745,13 @@ class ApplicationController {
             next.activeProvider = requested;
           }
         }
+        logger.info("[SAVE] provider validated", {
+          activeProvider: next.activeProvider,
+          providerWarning: providerWarning ? String(providerWarning).slice(0, 80) : null,
+          at: saveAt()
+        });
         providersStore.save(next);
+        logger.info("[SAVE] store saved", { filePath: providersStore.getFilePath(), at: saveAt() });
         // 镜像到 process.env（向后兼容 config.getApiKey）
         const allProviders = next.providers;
         if (allProviders.gemini && allProviders.gemini.apiKey) process.env.GEMINI_API_KEY = allProviders.gemini.apiKey;
@@ -1753,10 +1764,10 @@ class ApplicationController {
           if (allProviders['openai-compatible'].baseUrl) process.env.OPENAI_COMPAT_BASE_URL = allProviders['openai-compatible'].baseUrl;
         }
         // 重新初始化 router 走新 provider
-        try { llmRouter.reload(); }
+        try { llmRouter.reload(); logger.info("[SAVE] router reloaded", { activeProvider: llmRouter.getActiveProviderId(), at: saveAt() }); }
         catch (e) { logger.warn('Failed to reload LLM router', { error: e.message }); }
         // 触发 LLMService 内部状态重置（兼容老 updateApiKey 调用路径）
-        try { llmService.initializeClient(); } catch (_) {}
+        try { llmService.initializeClient(); logger.info("[SAVE] client initialized", { at: saveAt() }); } catch (_) {}
         logger.info('LLM provider config updated', { activeProvider: next.activeProvider, providerWarning });
         if (providerWarning) {
           // Saved, but the requested switch was rejected — surface to the UI.
@@ -1844,9 +1855,11 @@ class ApplicationController {
         }
       }
 
-      logger.info("Settings saved successfully", {
-        ...settings,
-        persistedEnvKeys: persistedKeys
+      // Note: log field NAMES only — never the values (they contain API keys).
+      logger.info("[SAVE] done", {
+        fields: Object.keys(settings || {}),
+        persistedEnvKeys: persistedKeys,
+        at: saveAt()
       });
       return { success: true, persistedEnvKeys: persistedKeys };
     } catch (error) {

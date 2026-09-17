@@ -15,6 +15,27 @@
 (function () {
   'use strict';
 
+  // ── Error surfacing ────────────────────────────────────────────────
+  // A JS error inside the wizard otherwise looks like "the app froze"
+  // with zero clues. Mirror every uncaught error / rejection into the
+  // visible status pill AND the console so failures are diagnosable.
+  function surfaceError(msg) {
+    console.error('[onboarding]', msg);
+    const pill = document.getElementById('keyStatus');
+    if (pill) {
+      pill.className = 'status-pill error';
+      pill.style.display = 'inline-flex';
+      const icon = pill.querySelector('i');
+      const txt = pill.querySelector('.text');
+      if (icon) icon.className = 'fas fa-circle-xmark';
+      if (txt) txt.textContent = String(msg).slice(0, 200);
+    }
+  }
+  window.addEventListener('error', (e) => surfaceError(e.message || 'Uncaught error'));
+  window.addEventListener('unhandledrejection', (e) => {
+    surfaceError('Unhandled: ' + ((e.reason && e.reason.message) || e.reason));
+  });
+
   // ── DOM refs ──────────────────────────────────────────────────────
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
@@ -667,10 +688,20 @@
     // active provider still has no key (the wizard-loop bug).
     if (name === 'apikey' && window.electronAPI) {
       inputsToState();
-      const r = await window.electronAPI.saveSettings({
+      console.log('[onboarding] saving provider config', { activeProvider: state.activeProvider });
+      // 8s guard: if the main process never replies we must not freeze the
+      // wizard silently — surface it so we know the hang is in the main
+      // process (check the terminal for the [SAVE] trace).
+      const savePromise = window.electronAPI.saveSettings({
         activeProvider: state.activeProvider,
         providers: state.providers,
-      }).catch(() => null);
+      }).catch((e) => { surfaceError('saveSettings IPC failed: ' + (e && e.message)); return null; });
+      const timeoutGuard = new Promise((resolve) => setTimeout(() => resolve({
+        success: false,
+        error: 'Save timed out: main process did not respond in 8s (see terminal [SAVE] logs)'
+      }), 8000));
+      const r = await Promise.race([savePromise, timeoutGuard]);
+      console.log('[onboarding] save result', r && { success: r.success, error: r.error });
       if (r && r.success === false && r.error) {
         setKeyStatus('error', r.error);
         return;
