@@ -1,4 +1,4 @@
-const { BrowserWindow, screen, desktopCapturer, shell } = require('electron');
+const { BrowserWindow, screen, shell } = require('electron');
 const path = require('path');
 const logger = require('../core/logger').createServiceLogger('WINDOW');
 const config = require('../core/config');
@@ -13,15 +13,8 @@ class WindowManager {
     this.screenWatcher = null;
     this.desktopWatcher = null;
     this.lastActiveSpace = null;
-    this.screenCaptureAvailabilityWatcher = null;
     this.isScreenBeingShared = false;
     this.wasVisibleBeforeSharing = false;
-    this.screenCaptureStatus = {
-      available: null,
-      lastError: null,
-      lastCheckedAt: null
-    };
-    this.isCheckingScreenCaptureStatus = false;
     this.isInitialized = false;
     this.isInitializing = false;
     this.isRecording = false;
@@ -120,7 +113,6 @@ class WindowManager {
       
       this.setupWindowEventHandlers();
       this.setupScreenTracking();
-      this.setupScreenCaptureAvailabilityWatcher();
 
       // Make windows interactive by default so they are not click-through
       this.setInteractive(true);
@@ -923,73 +915,6 @@ class WindowManager {
     });
   }
 
-  setupScreenCaptureAvailabilityWatcher() {
-    // Avoid screencast portal errors on Linux/Wayland by disabling periodic detection
-    if (process.platform === 'linux') {
-      logger.info('Skipping screen capture availability watcher on Linux to avoid portal screencast errors');
-      return;
-    }
-
-    if (this.screenCaptureAvailabilityWatcher) {
-      clearInterval(this.screenCaptureAvailabilityWatcher);
-    }
-
-    // This is only a capture availability probe. desktopCapturer.getSources()
-    // cannot tell whether another app is currently sharing the screen.
-    this.screenCaptureAvailabilityWatcher = setInterval(async () => {
-      await this.checkScreenCaptureAvailability();
-    }, 5000); // Check every 5 seconds instead of 1
-
-    logger.info('Screen capture availability watcher initialized');
-  }
-
-  async checkScreenCaptureAvailability() {
-    if (this.isCheckingScreenCaptureStatus) {
-      logger.debug('Skipping overlapping screen capture availability check');
-      return;
-    }
-
-    this.isCheckingScreenCaptureStatus = true;
-    const previousAvailability = this.screenCaptureStatus.available;
-    const checkedAt = new Date().toISOString();
-
-    try {
-      await desktopCapturer.getSources({
-        types: ['screen', 'window'],
-        thumbnailSize: { width: 1, height: 1 }
-      });
-
-      this.screenCaptureStatus = {
-        available: true,
-        lastError: null,
-        lastCheckedAt: checkedAt
-      };
-
-      if (previousAvailability === false) {
-        logger.info('Screen capture enumeration recovered');
-      }
-    } catch (error) {
-      this.screenCaptureStatus = {
-        available: false,
-        lastError: error.message,
-        lastCheckedAt: checkedAt
-      };
-
-      const logContext = {
-        error: error.message,
-        isScreenBeingShared: this.isScreenBeingShared
-      };
-
-      if (previousAvailability === false) {
-        logger.debug('Screen capture enumeration still unavailable', logContext);
-      } else {
-        logger.warn('Screen capture enumeration unavailable; leaving screen sharing mode unchanged', logContext);
-      }
-    } finally {
-      this.isCheckingScreenCaptureStatus = false;
-    }
-  }
-
   startScreenSharingMode() {
     if (!this.isScreenBeingShared) {
       this.isScreenBeingShared = true;
@@ -1512,8 +1437,7 @@ class WindowManager {
       activeWindow: this.activeWindow,
       isInteractive: this.isInteractive,
       isVisible: this.isVisible,
-      isScreenBeingShared: this.isScreenBeingShared,
-      screenCaptureStatus: { ...this.screenCaptureStatus }
+      isScreenBeingShared: this.isScreenBeingShared
     };
   }
 
@@ -1538,11 +1462,6 @@ class WindowManager {
       this.desktopWatcher = null;
     }
 
-    if (this.screenCaptureAvailabilityWatcher) {
-      clearInterval(this.screenCaptureAvailabilityWatcher);
-      this.screenCaptureAvailabilityWatcher = null;
-    }
-    
     logger.info('All windows destroyed');
   }
 
