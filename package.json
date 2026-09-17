@@ -37,6 +37,7 @@
     "marked": "^15.0.12",
     "microsoft-cognitiveservices-speech-sdk": "^1.40.0",
     "node-record-lpcm16": "^1.0.1",
+    "openai": "^4.104.0",
     "prismjs": "^1.30.0",
     "winston": "^3.17.0",
     "winston-daily-rotate-file": "^4.7.1"
