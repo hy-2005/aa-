@@ -317,8 +317,8 @@ class GeminiAdapter {
   }
 
   formatImageInstruction(activeSkill, programmingLanguage) {
-    const langNote = programmingLanguage ? ` Use only ${programmingLanguage.toUpperCase()} for any code.` : '';
-    return `Analyze this image for a ${activeSkill.toUpperCase()} question. Extract the problem concisely and provide the best possible solution with explanation and final code.${langNote}`;
+    const langNote = programmingLanguage ? ` 代码只使用 ${programmingLanguage.toUpperCase()}。` : '';
+    return `请分析这张图片中的题目，简要提取问题，并给出最优解法、思路讲解和最终代码。所有说明文字必须使用中文回答。${langNote}`;
   }
 
   buildGeminiRequest(text, activeSkill, sessionMemory, programmingLanguage) {

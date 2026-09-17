@@ -72,7 +72,7 @@ class OpenAIAdapter {
     messages.push({
       role: 'user',
       content: [
-        { type: 'text', text: prompt || `Analyze this image for a ${activeSkill} question.` },
+        { type: 'text', text: prompt || `请分析这张图片中的题目并用中文回答。` },
         { type: 'image_url', image_url: { url: dataUrl } }
       ]
     });

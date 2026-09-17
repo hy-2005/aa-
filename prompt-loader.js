@@ -57,7 +57,7 @@ class PromptLoader {
 
     const normalizedSkillName = this.normalizeSkillName(skillName);
     let promptContent = this.prompts.get(normalizedSkillName);
-    
+
     if (!promptContent) {
       return null;
     }
@@ -66,6 +66,15 @@ class PromptLoader {
     if (programmingLanguage && this.skillsRequiringProgrammingLanguage.includes(normalizedSkillName)) {
       promptContent = this.injectProgrammingLanguage(promptContent, programmingLanguage, normalizedSkillName);
     }
+
+    // Global output-language rule, appended to every skill prompt so all
+    // providers (Gemini / OpenAI / OpenAI-compatible) and all entry points
+    // (chat, voice, screenshot analysis) answer in Chinese consistently.
+    // Code itself stays in the user-selected language.
+    promptContent += '\n\n## 输出语言（必须遵守）\n' +
+      '- 始终使用简体中文回答；代码块、变量名、专有名词除外。\n' +
+      '- 思路讲解、步骤说明、复杂度分析、总结等一切文字说明都必须使用中文。\n' +
+      '- 即使提问是英文，回答仍然使用中文。';
 
     return promptContent;
   }
