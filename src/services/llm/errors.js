@@ -108,10 +108,40 @@ function _friendlyTestError(rawError, providerId, analysis) {
   if (type === 'MODEL_ERROR' || (raw.includes('model') && raw.includes('not found'))) {
     return `The configured model for ${providerId} is unavailable. Try a different model in Settings.`;
   }
+  if (type === 'TIMEOUT_ERROR' || raw.includes('timeout') || raw.includes('timed out')) {
+    return `${providerId} did not respond within the timeout. Check the base URL and your network.`;
+  }
   if (raw.includes('503') || raw.includes('unavailable') || raw.includes('high demand')) {
     return `${providerId} is experiencing high demand. Please wait and try again.`;
   }
   return (rawError && rawError.message) || 'Connection failed';
+}
+
+/**
+ * Race a promise against a hard timeout. If the promise doesn't settle within
+ * `ms` milliseconds, return a normalized TIMEOUT_ERROR instead of letting the
+ * caller wait indefinitely. The underlying promise is left dangling — Node's
+ * event loop will GC the rejected result once it finally settles, but the
+ * caller (UI/IPC handler) gets a clean, fast response.
+ *
+ * Why this exists: the OpenAI SDK's default timeout is ~10 minutes for an
+ * unreachable host. Without this, a wrong baseUrl or dead proxy hangs the
+ * main process IPC handler long enough for Windows to surface the
+ * "Electron not responding" dialog and lock the UI.
+ */
+function withTimeout(promise, ms, providerId, label) {
+  let timer;
+  const timeoutPromise = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      resolve({
+        success: false,
+        error: `${providerId} ${label || 'request'} timed out after ${ms}ms. Check your base URL and network.`,
+        errorType: 'TIMEOUT_ERROR',
+        timedOut: true
+      });
+    }, ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
 }
 
 logger.info('LLM errors module loaded');
@@ -121,5 +151,6 @@ module.exports = {
   ImageNotSupportedError,
   StreamNotSupportedError,
   normalizeError,
-  _friendlyTestError
+  _friendlyTestError,
+  withTimeout
 };

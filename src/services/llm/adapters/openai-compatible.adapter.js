@@ -1,7 +1,9 @@
 const OpenAI = require('openai');
 const logger = require('../../../core/logger').createServiceLogger('OpenAICompatibleAdapter');
-const { NoApiKeyError, normalizeError, ImageNotSupportedError } = require('../errors');
+const { NoApiKeyError, normalizeError, ImageNotSupportedError, withTimeout } = require('../errors');
 const { promptLoader } = require('../../../../prompt-loader');
+
+const TEST_TIMEOUT_MS = 8000;
 
 class OpenAICompatibleAdapter {
   constructor({ providerId, config: providerConfig }) {
@@ -147,11 +149,21 @@ class OpenAICompatibleAdapter {
     if (!this.isInitialized) return { success: false, error: 'Service not initialized', errorType: 'NO_KEY' };
     try {
       const start = Date.now();
-      const resp = await this.client.chat.completions.create({
-        model: this.model,
-        messages: [{ role: 'user', content: 'Test connection. Please respond with "OK".' }],
-        max_tokens: 16
-      });
+      // Hard timeout: an unreachable baseUrl would otherwise hang the IPC
+      // handler for the SDK's default timeout (~10 minutes), surfacing as
+      // "Electron not responding" in the UI.
+      const resp = await withTimeout(
+        this.client.chat.completions.create({
+          model: this.model,
+          messages: [{ role: 'user', content: 'Test connection. Please respond with "OK".' }],
+          max_tokens: 16
+        }),
+        TEST_TIMEOUT_MS,
+        this.id,
+        'test'
+      );
+      // withTimeout already returned a failure object if it won the race
+      if (resp && resp.success === false) return resp;
       const text = resp.choices?.[0]?.message?.content || '';
       return { success: true, response: text, latency: Date.now() - start, model: this.model, provider: this.id };
     } catch (e) {

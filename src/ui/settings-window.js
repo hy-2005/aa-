@@ -157,6 +157,18 @@ document.addEventListener('DOMContentLoaded', () => {
             if (document.getElementById('openaiCompatModel'))  document.getElementById('openaiCompatModel').value  = p['openai-compatible'].model || '';
             if (document.getElementById('openaiCompatBaseUrl'))document.getElementById('openaiCompatBaseUrl').value= p['openai-compatible'].baseUrl || '';
         }
+        // Sync visibility so only the active provider's fields are visible
+        refreshProviderFieldVisibility(settings.activeProvider);
+    };
+
+    // Show only the field group for the active provider. Prevents the user
+    // from typing credentials into a hidden/non-active provider and being
+    // confused why "Test Active Provider" uses a different one.
+    const refreshProviderFieldVisibility = (activeId) => {
+        const blocks = document.querySelectorAll('.provider-block');
+        blocks.forEach((b) => {
+            b.style.display = (b.dataset.provider === activeId) ? '' : 'none';
+        });
     };
 
     // Hook into existing load path
@@ -268,7 +280,16 @@ document.addEventListener('DOMContentLoaded', () => {
         whisperResponseTargetSelect,
         whisperSegmentMsInput,
         geminiKeyInput,
-        windowGapInput
+        windowGapInput,
+        // ── Multi-provider fields: missing listeners were the root cause of
+        //    the "selecting models hangs the app" symptom — typing into these
+        //    fields or changing the dropdown used to do nothing, leaving the
+        //    router pointing at the wrong provider. ──
+        document.getElementById('openaiKey'),
+        document.getElementById('openaiModel'),
+        document.getElementById('openaiCompatKey'),
+        document.getElementById('openaiCompatModel'),
+        document.getElementById('openaiCompatBaseUrl')
     ];
 
     inputs.forEach(input => {
@@ -281,6 +302,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (speechProviderSelect) {
         speechProviderSelect.addEventListener('change', () => {
             updateSpeechFieldStates();
+            saveSettings();
+        });
+    }
+
+    // ── Multi-provider dropdown: was missing entirely, so switching
+    //    providers did nothing (no save → router kept old provider). ──
+    const activeProviderSelect = document.getElementById('activeProvider');
+    if (activeProviderSelect) {
+        activeProviderSelect.addEventListener('change', () => {
+            refreshProviderFieldVisibility(activeProviderSelect.value);
             saveSettings();
         });
     }

@@ -2,7 +2,9 @@ const { GoogleGenAI } = require('@google/genai');
 const logger = require('../../../core/logger').createServiceLogger('GeminiAdapter');
 const config = require('../../../core/config');
 const { promptLoader } = require('../../../../prompt-loader');
-const { NoApiKeyError, normalizeError } = require('../errors');
+const { NoApiKeyError, normalizeError, withTimeout } = require('../errors');
+
+const TEST_TIMEOUT_MS = 8000;
 
 class GeminiAdapter {
   constructor({ providerId, config: providerConfig }) {
@@ -249,11 +251,19 @@ class GeminiAdapter {
       for (const modelName of modelsToTry) {
         try {
           const start = Date.now();
-          const result = await this.client.models.generateContent({
-            model: modelName,
-            contents: 'Test connection. Please respond with "OK".',
-            config: generationConfig
-          });
+          // Hard timeout: see OpenAI-compatible adapter for the rationale.
+          const result = await withTimeout(
+            this.client.models.generateContent({
+              model: modelName,
+              contents: 'Test connection. Please respond with "OK".',
+              config: generationConfig
+            }),
+            TEST_TIMEOUT_MS,
+            this.id,
+            'test'
+          );
+          // withTimeout returns a failure object if it won the race
+          if (result && result.success === false) return result;
           const { text } = this.extractTextFromCandidates(result);
           return {
             success: true,

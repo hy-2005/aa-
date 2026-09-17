@@ -478,21 +478,21 @@
 
                     <hr style="margin: 16px 0; opacity: 0.2;">
 
-                    <div class="form-group">
+                    <div class="form-group provider-block" data-provider="gemini">
                         <label class="form-label" for="geminiKey">Google Gemini API Key</label>
                         <input type="password" class="input-field" id="geminiKey" placeholder="Enter your Google API key">
                         <label class="form-label" for="geminiModel" style="margin-top:8px;">Gemini Model</label>
                         <input type="text" class="input-field" id="geminiModel" placeholder="gemini-3.1-flash-lite">
                     </div>
 
-                    <div class="form-group">
+                    <div class="form-group provider-block" data-provider="openai" style="display:none;">
                         <label class="form-label" for="openaiKey">OpenAI API Key</label>
                         <input type="password" class="input-field" id="openaiKey" placeholder="sk-...">
                         <label class="form-label" for="openaiModel" style="margin-top:8px;">OpenAI Model</label>
                         <input type="text" class="input-field" id="openaiModel" placeholder="gpt-4o-mini">
                     </div>
 
-                    <div class="form-group">
+                    <div class="form-group provider-block" data-provider="openai-compatible" style="display:none;">
                         <label class="form-label">OpenAI Compatible (DeepSeek / Ollama / OpenRouter / Custom)</label>
                         <input type="password" class="input-field" id="openaiCompatKey" placeholder="API Key">
                         <input type="text" class="input-field" id="openaiCompatModel" placeholder="Model (deepseek-chat, llama3, ...)" style="margin-top:8px;">

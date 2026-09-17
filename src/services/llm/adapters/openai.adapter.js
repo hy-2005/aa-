@@ -2,7 +2,9 @@ const OpenAI = require('openai');
 const logger = require('../../../core/logger').createServiceLogger('OpenAIAdapter');
 const config = require('../../../core/config');
 const { promptLoader } = require('../../../../prompt-loader');
-const { NoApiKeyError, normalizeError, ImageNotSupportedError } = require('../errors');
+const { NoApiKeyError, normalizeError, ImageNotSupportedError, withTimeout } = require('../errors');
+
+const TEST_TIMEOUT_MS = 8000;
 
 class OpenAIAdapter {
   constructor({ providerId, config: providerConfig }) {
@@ -205,11 +207,18 @@ class OpenAIAdapter {
     if (!this.isInitialized) return { success: false, error: 'Service not initialized', errorType: 'NO_KEY' };
     try {
       const start = Date.now();
-      const resp = await this.client.chat.completions.create({
-        model: this.model,
-        messages: [{ role: 'user', content: 'Test connection. Please respond with "OK".' }],
-        max_tokens: 16
-      });
+      // Hard timeout: see OpenAI-compatible adapter for the rationale.
+      const resp = await withTimeout(
+        this.client.chat.completions.create({
+          model: this.model,
+          messages: [{ role: 'user', content: 'Test connection. Please respond with "OK".' }],
+          max_tokens: 16
+        }),
+        TEST_TIMEOUT_MS,
+        this.id,
+        'test'
+      );
+      if (resp && resp.success === false) return resp;
       const text = resp.choices?.[0]?.message?.content || '';
       return { success: true, response: text, latency: Date.now() - start, model: this.model, provider: this.id };
     } catch (e) {
