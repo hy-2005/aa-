@@ -1698,7 +1698,10 @@ class ApplicationController {
           }
         }
         // activeProvider 切换：必须确保目标 provider 至少有 key
-        if (settings.activeProvider && ['gemini', 'openai', 'openai-compatible'].includes(settings.activeProvider)) {
+        // Use provider-registry as single source of truth so adding a new
+        // provider doesn't require updating this list (avoids drift).
+        const providerRegistry = require('./src/services/llm/provider-registry');
+        if (settings.activeProvider && providerRegistry.isValidProviderId(settings.activeProvider)) {
           next.activeProvider = settings.activeProvider;
         }
         // 校验目标 provider 字段

@@ -105,7 +105,7 @@ function _friendlyTestError(rawError, providerId, analysis) {
   if (type === 'RATE_LIMIT_ERROR' || raw.includes('429') || raw.includes('quota')) {
     return `Rate limit or quota exceeded for ${providerId}. Wait or check your billing.`;
   }
-  if (type === 'MODEL_ERROR' || raw.includes('model') && raw.includes('not found')) {
+  if (type === 'MODEL_ERROR' || (raw.includes('model') && raw.includes('not found'))) {
     return `The configured model for ${providerId} is unavailable. Try a different model in Settings.`;
   }
   if (raw.includes('503') || raw.includes('unavailable') || raw.includes('high demand')) {
