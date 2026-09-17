@@ -42,8 +42,13 @@
   // ── State ─────────────────────────────────────────────────────────
   const state = {
     step: 0,
-    geminiKey: '',
-    geminiConfigured: false, // a key already exists in .env from a prior run
+    activeProvider: 'gemini',  // 'gemini' | 'openai' | 'openai-compatible'
+    providers: {
+      gemini: { apiKey: '', model: 'gemini-3.1-flash-lite' },
+      openai: { apiKey: '', model: 'gpt-4o-mini' },
+      'openai-compatible': { apiKey: '', model: '', baseUrl: '' }
+    },
+    geminiConfigured: false, // legacy: true if active provider has a key already in store
     speechProvider: null, // 'whisper' | 'azure' | 'skip'
     azureKey: '',
     azureRegion: '',
@@ -134,9 +139,20 @@
     switch (name) {
       case 'welcome':
         return true;
-      case 'apikey':
-        // A key already in .env is enough — don't force a re-entry.
-        return !!state.geminiKey.trim() || state.geminiConfigured;
+      case 'apikey': {
+        const p = state.providers[state.activeProvider];
+        if (!p) return false;
+        if (state.activeProvider === 'gemini') {
+          return !!p.apiKey.trim() || state.geminiConfigured;
+        }
+        if (state.activeProvider === 'openai') {
+          return !!p.apiKey.trim() || state.geminiConfigured;
+        }
+        if (state.activeProvider === 'openai-compatible') {
+          return !!p.apiKey.trim() && !!p.model.trim() && !!p.baseUrl.trim();
+        }
+        return false;
+      }
       case 'speech':
         if (state.speechProvider === 'azure') {
           return !!state.azureKey.trim() && !!state.azureRegion.trim();
@@ -154,10 +170,52 @@
     }
   }
 
-  // ── Wire up: API key ──────────────────────────────────────────────
-  const geminiInput = $('#geminiKey');
-  const toggleVis = $('#toggleVis');
+  // ── Wire up: AI Provider config (apikey screen) ──────────────────
+  const providerSelect = $('#activeProvider');
+  const providerGroups = $$('.provider-fields');
+  const providerHint = $('#providerHint');
+  const providerKeyLink = $('#providerKeyLink');
   const keyStatus = $('#keyStatus');
+
+  // Per-provider field refs (looked up at boot so we can read/write them)
+  const providerInputs = {
+    gemini: { apiKey: $('#geminiKey'), model: $('#geminiModel'), baseUrl: null },
+    openai: { apiKey: $('#openaiKey'), model: $('#openaiModel'), baseUrl: null },
+    'openai-compatible': {
+      apiKey: $('#openaiCompatKey'),
+      model: $('#openaiCompatModel'),
+      baseUrl: $('#openaiCompatBaseUrl'),
+    },
+  };
+
+  // "Where to get a key" hint per provider
+  const providerHints = {
+    gemini: {
+      url: 'https://aistudio.google.com/apikey',
+      label: 'aistudio.google.com/apikey',
+      html:
+        'Don\'t have one? Get a free key at ' +
+        '<a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">' +
+        'aistudio.google.com/apikey</a>. Keys are stored locally — ' +
+        'never sent anywhere except Google.',
+    },
+    openai: {
+      url: 'https://platform.openai.com/api-keys',
+      label: 'platform.openai.com/api-keys',
+      html:
+        'Don\'t have one? Create a key at ' +
+        '<a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">' +
+        'platform.openai.com/api-keys</a>. Keys are stored locally — ' +
+        'never sent anywhere except OpenAI.',
+    },
+    'openai-compatible': {
+      url: 'https://platform.deepseek.com',
+      label: 'platform.deepseek.com',
+      html:
+        'Endpoint depends on your provider (e.g. <code>platform.deepseek.com</code> for DeepSeek). ' +
+        'Keys are stored locally and only sent to your configured Base URL.',
+    },
+  };
 
   function setKeyStatus(state_, text) {
     keyStatus.className = `status-pill ${state_}`;
@@ -176,24 +234,95 @@
     txt.textContent = text;
   }
 
-  geminiInput.addEventListener('input', () => {
-    state.geminiKey = geminiInput.value.trim();
-    if (!state.geminiKey) {
-      keyStatus.style.display = 'none';
-    } else if (keyStatus.classList.contains('success')) {
-      // Keep success state — they had a valid key, may be editing
-    } else {
-      setKeyStatus('idle', 'Key entered');
+  function refreshProviderVisibility() {
+    providerGroups.forEach((g) => {
+      g.style.display = g.dataset.provider === state.activeProvider ? '' : 'none';
+    });
+    if (providerHint && providerKeyLink) {
+      const hint = providerHints[state.activeProvider];
+      if (hint) {
+        providerKeyLink.href = hint.url;
+        providerKeyLink.textContent = hint.label;
+        providerHint.innerHTML = hint.html;
+      }
     }
+  }
+
+  // Sync a provider's inputs to/from the in-memory state
+  function inputsToState() {
+    const inputs = providerInputs[state.activeProvider];
+    if (!inputs) return;
+    const p = state.providers[state.activeProvider];
+    if (inputs.apiKey) p.apiKey = inputs.apiKey.value.trim();
+    if (inputs.model) p.model = inputs.model.value.trim();
+    if (inputs.baseUrl) p.baseUrl = inputs.baseUrl.value.trim();
+  }
+
+  function stateToInputs() {
+    Object.keys(providerInputs).forEach((pid) => {
+      const inputs = providerInputs[pid];
+      const p = state.providers[pid];
+      if (!inputs || !p) return;
+      if (inputs.apiKey) inputs.apiKey.value = p.apiKey || '';
+      if (inputs.model) inputs.model.value = p.model || '';
+      if (inputs.baseUrl) inputs.baseUrl.value = p.baseUrl || '';
+    });
+  }
+
+  // Provider change handler
+  providerSelect.addEventListener('change', () => {
+    // Sync current provider's inputs back to state before switching
+    inputsToState();
+    state.activeProvider = providerSelect.value;
+    // Clear status pill when switching providers (so old test doesn't linger)
+    if (keyStatus) {
+      keyStatus.style.display = 'none';
+      keyStatus.classList.remove('success');
+    }
+    refreshProviderVisibility();
   });
 
-  toggleVis.addEventListener('click', () => {
-    const showing = geminiInput.type === 'text';
-    geminiInput.type = showing ? 'password' : 'text';
-    toggleVis.innerHTML = showing
-      ? '<i class="fas fa-eye"></i>'
-      : '<i class="fas fa-eye-slash"></i>';
+  // Per-field input listeners (mirror to state, manage status pill on key entry)
+  Object.keys(providerInputs).forEach((pid) => {
+    const inputs = providerInputs[pid];
+    ['apiKey', 'model', 'baseUrl'].forEach((field) => {
+      const el = inputs[field];
+      if (!el) return;
+      el.addEventListener('input', () => {
+        inputsToState();
+        // Only flash the status pill on API-key edits of the active provider
+        if (field === 'apiKey' && pid === state.activeProvider) {
+          if (!el.value.trim()) {
+            keyStatus.style.display = 'none';
+          } else if (keyStatus.classList.contains('success')) {
+            // Keep success state — they had a valid key, may be editing
+          } else {
+            setKeyStatus('idle', 'Key entered');
+          }
+        }
+      });
+    });
   });
+
+  // Wire up each "show / hide" eye toggle by data-toggle attribute
+  $$('.toggle-vis').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const inputId = btn.getAttribute('data-toggle');
+      if (!inputId) return;
+      const input = document.getElementById(inputId);
+      if (!input) return;
+      const showing = input.type === 'text';
+      input.type = showing ? 'password' : 'text';
+      btn.innerHTML = showing
+        ? '<i class="fas fa-eye"></i>'
+        : '<i class="fas fa-eye-slash"></i>';
+    });
+  });
+
+  // Initial UI sync
+  stateToInputs();
+  providerSelect.value = state.activeProvider;
+  refreshProviderVisibility();
 
   // ── Wire up: Speech choices ───────────────────────────────────────
   $$('#speechChoices .choice-card').forEach((card) => {
@@ -450,10 +579,16 @@
   // ── Wire up: Finish screen ────────────────────────────────────────
   function populateSummary() {
     const rows = [];
+    const activeP = state.providers[state.activeProvider] || {};
+    const isOpenAICompat = state.activeProvider === 'openai-compatible';
+    const activeConfigured = !!(
+      (activeP.apiKey && activeP.apiKey.trim()) &&
+      (!isOpenAICompat || (activeP.model && activeP.model.trim() && activeP.baseUrl && activeP.baseUrl.trim()))
+    );
     rows.push({
-      label: '<i class="fas fa-key"></i> Gemini API',
-      value: (state.geminiKey || state.geminiConfigured) ? 'Configured' : 'Missing',
-      cls: (state.geminiKey || state.geminiConfigured) ? 'ok' : 'skip',
+      label: `<i class="fas fa-key"></i> AI Provider (${state.activeProvider})`,
+      value: (activeConfigured || state.geminiConfigured) ? 'Configured' : 'Missing',
+      cls: (activeConfigured || state.geminiConfigured) ? 'ok' : 'skip',
     });
     if (state.speechProvider === 'whisper') {
       rows.push({
@@ -476,7 +611,7 @@
     }
     rows.push({
       label: '<i class="fas fa-file-lines"></i> Config saved to',
-      value: '.env',
+      value: 'llm-providers.json',
       cls: 'ok',
     });
     $('#summaryList').innerHTML = rows
@@ -514,16 +649,25 @@
     const name = currentScreenName();
     if (!canAdvance()) {
       // Lightly nudge the user
-      if (name === 'apikey') setKeyStatus('error', 'Enter a Gemini API key');
+      if (name === 'apikey') {
+        const hintByProvider = {
+          gemini: 'Enter a Gemini API key',
+          openai: 'Enter an OpenAI API key',
+          'openai-compatible': 'Enter key, model, and base URL',
+        };
+        setKeyStatus('error', hintByProvider[state.activeProvider] || 'Enter provider credentials');
+      }
       return;
     }
 
-    // Persist settings on speech selection (Azure path), since we
-    // already saved geminiKey on test; do it here too if user skipped
-    // testing.
-    if (name === 'apikey' && state.geminiKey && window.electronAPI) {
+    // Persist settings on apikey (saved progress so a crash doesn't lose the key)
+    if (name === 'apikey' && window.electronAPI) {
       try {
-        await window.electronAPI.saveSettings({ geminiKey: state.geminiKey });
+        inputsToState();
+        await window.electronAPI.saveSettings({
+          activeProvider: state.activeProvider,
+          providers: state.providers,
+        });
       } catch (_) { /* surfaced elsewhere */ }
     }
     if (name === 'speech' && window.electronAPI) {
@@ -655,18 +799,26 @@
   // ── Boot ──────────────────────────────────────────────────────────
   showScreen('welcome');
 
-  // Pre-populate Gemini key from existing .env (if any) so users with
-  // a partial config don't have to retype.
+  // Pre-populate provider config from existing JSON store (if any) so users
+  // with a partial config don't have to retype.
   if (window.electronAPI && window.electronAPI.getFirstRunStatus) {
     window.electronAPI.getFirstRunStatus().then((s) => {
-      if (s && s.geminiConfigured) {
-        // We can't read the key back (settings returns empty for keys),
-        // but we can mark status as success if the env file already has one
-        // and let the user advance without retyping it.
+      if (!s) return;
+      // Mirror active provider + any pre-existing keys
+      if (s.activeProvider && state.providers[s.activeProvider]) {
+        state.activeProvider = s.activeProvider;
+        providerSelect.value = state.activeProvider;
+      }
+      if (s.activeConfigured) {
         state.geminiConfigured = true;
         setKeyStatus('success', 'Already configured — click Continue');
-        geminiInput.placeholder = '•••••••••••••••• (already set)';
+        // Show "configured" placeholder on each API key field
+        Object.keys(providerInputs).forEach((pid) => {
+          const apiKeyEl = providerInputs[pid] && providerInputs[pid].apiKey;
+          if (apiKeyEl) apiKeyEl.placeholder = '•••••••••••••••• (already set)';
+        });
       }
+      refreshProviderVisibility();
     }).catch(() => {});
   }
 })();
