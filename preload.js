@@ -115,6 +115,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onScreenshotQueueEmpty: (callback) => ipcRenderer.on('screenshot-queue-empty', callback),
   onScreenshotQueueSending: (callback) => ipcRenderer.on('screenshot-queue-sending', callback),
   onScreenshotQueueRestored: (callback) => ipcRenderer.on('screenshot-queue-restored', callback),
+  onMainResizedByShortcut: (callback) => ipcRenderer.on('window-resized-by-shortcut', callback),
   onOpenGeminiConfig: (callback) => ipcRenderer.on('open-gemini-config', callback),
   onDisplayLlmResponse: (callback) => ipcRenderer.on('display-llm-response', callback),
   onShowLoading: (callback) => ipcRenderer.on('show-loading', callback),

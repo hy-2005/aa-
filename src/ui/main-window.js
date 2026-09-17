@@ -240,6 +240,10 @@ class MainWindowUI {
 
     resizeWindowToContent() {
         // Wait for DOM to fully render
+        if (this._skipAutoShrinkUntil && Date.now() < this._skipAutoShrinkUntil) {
+            logger.debug('Skipping auto-shrink (manual resize in flight)');
+            return;
+        }
         setTimeout(() => {
             const commandTab = document.querySelector('.command-tab');
             if (commandTab && window.electronAPI && window.electronAPI.resizeWindow) {
@@ -419,6 +423,13 @@ class MainWindowUI {
 
     setupEventListeners() {
         if (window.electronAPI) {
+            // Ctrl+[ / Ctrl+] just resized us. Suppress the next auto-shrink
+            // tick so the bar doesn't snap back to a 35px strip.
+            if (window.electronAPI.onMainResizedByShortcut) {
+                window.electronAPI.onMainResizedByShortcut(() => {
+                    this._skipAutoShrinkUntil = Date.now() + 600;
+                });
+            }
             // Fix interaction mode change listener
             window.electronAPI.onInteractionModeChanged((event, interactive) => {
                 logger.debug('Interaction mode changed received:', interactive);

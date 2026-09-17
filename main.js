@@ -642,18 +642,23 @@ class ApplicationController {
     ipcMain.handle("resize-window", (event, { width, height }) => {
       const mainWindow = windowManager.getWindow("main");
       if (mainWindow) {
-        // Enforce horizontal constraints: min ~one icon, max original width
-        const minW = 60;
+        const minW = 240;
         const maxW = windowManager.windowConfigs?.main?.width || 520;
+        const minH = windowManager.getMinMainHeight();
+        const maxH = 600;
         const clampedWidth = Math.max(minW, Math.min(maxW, Math.round(width || minW)));
+        // Don’t auto-shrink to a flat strip. While Ctrl+[ / Ctrl+] is
+        // active, pass the renderer’s requested height through unchanged
+        // so the shortcut’s resize sticks.
+        const requestedHeight = windowManager.isAutoShrinkSuspended()
+          ? Math.round(height)
+          : Math.max(minH, Math.min(maxH, Math.round(height || minH)));
         try {
-          // Match content size to the DOM so no extra transparent area remains
-          mainWindow.setContentSize(Math.max(1, clampedWidth), Math.max(1, Math.round(height)));
+          mainWindow.setContentSize(Math.max(1, clampedWidth), Math.max(1, requestedHeight));
         } catch (e) {
-          // Fallback in case setContentSize isn’t available on some platform
-          mainWindow.setSize(Math.max(1, clampedWidth), Math.max(1, Math.round(height)));
+          mainWindow.setSize(Math.max(1, clampedWidth), Math.max(1, requestedHeight));
         }
-        logger.debug("Main window resized (content)", { width: clampedWidth, height });
+        logger.debug("Main window resized (content)", { width: clampedWidth, height: requestedHeight });
       }
       return { success: true };
     });
@@ -1182,8 +1187,18 @@ class ApplicationController {
     }
   }
 
+  /**
+   * Hide every visible overlay window right before the capture so the
+   * result is the actual screen content (the user's problem), not a frame
+   * that includes our own chat/llm-response/main bar. Restored after the
+   * capture settles, even on failure.
+   */
   async _captureOneScreenshot() {
+    const hidden = windowManager.hideOverlaysForCapture();
     try {
+      // Give Chromium a tick to actually paint the windows out of the
+      // compositor before getSources reads the desktop frame.
+      await new Promise((r) => setTimeout(r, 80));
       const capture = await captureService.captureAndProcess();
       if (!capture.imageBuffer || !capture.imageBuffer.length) {
         this.broadcastOCRError("截图失败：未能获取屏幕图像");
@@ -1215,6 +1230,8 @@ class ApplicationController {
     } catch (error) {
       logger.error("Screenshot capture failed", { error: error.message });
       this.broadcastOCRError(`截图失败：${error.message}`);
+    } finally {
+      windowManager.restoreOverlaysAfterCapture(hidden);
     }
   }
 

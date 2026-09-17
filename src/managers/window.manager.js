@@ -20,6 +20,9 @@ class WindowManager {
     this.isRecording = false;
     // Overlay opacity for Alt+= / Alt+- hotkeys (main / chat / llmResponse)
     this.overlayOpacity = 1.0;
+    // Set true for ~500ms after Ctrl+[ / Ctrl+] to prevent the renderer's
+    // resizeWindowToContent from snapping the new height back down.
+    this._suspendAutoShrink = 0;
     
     // Add debouncing to prevent excessive operations
     this.lastEnforceTime = 0;
@@ -1339,19 +1342,72 @@ class WindowManager {
   }
 
   /**
-   * Ctrl+= / Ctrl+- — step the main overlay window's width. Clamped so it
-   * can never collapse to nothing or outgrow its configured max width.
+   * Hide every visible overlay window so a capture doesn't include our
+   * own UI. Returns the list that was hidden so the caller can restore.
+   * Framed dialogs (onboarding, settings) are left alone.
+   */
+  hideOverlaysForCapture() {
+    const hidden = [];
+    ['main', 'chat', 'llmResponse'].forEach((type) => {
+      const win = this.windows.get(type);
+      if (win && !win.isDestroyed() && win.isVisible()) {
+        try { win.hide(); hidden.push(type); } catch (_) { /* ignore */ }
+      }
+    });
+    return hidden;
+  }
+
+  restoreOverlaysAfterCapture(hiddenTypes) {
+    if (!Array.isArray(hiddenTypes)) return;
+    for (const type of hiddenTypes) {
+      const win = this.windows.get(type);
+      if (win && !win.isDestroyed()) {
+        try { win.show(); } catch (_) { /* ignore */ }
+      }
+    }
+  }
+
+  /**
+   * Ctrl+[ / Ctrl+] — step the main overlay window's size. Clamped so it
+   * never collapses to nothing or outgrows the configured max. The previous
+   * "only resize width" implementation conflicted with resizeWindowToContent
+   * in main-window.js, which auto-shrinks height to whatever the .command-tab
+   * measures (a 35px bar) — the user reported the window collapsing to a
+   * thin strip. The shortcuts now resize BOTH width and height, and the
+   * renderer is told to skip the next auto-shrink so the resize sticks.
    */
   stepMainWindowSize(delta) {
     const win = this.windows.get('main');
     if (!win || win.isDestroyed()) return;
     const [w, h] = win.getContentSize();
-    const minW = 120;
+    const minW = 240;
+    const minH = 70;
     const maxW = this.windowConfigs?.main?.width || 520;
+    const maxH = 600;
     const newW = Math.max(minW, Math.min(maxW, Math.round(w + delta)));
-    if (newW === w) return;
-    win.setContentSize(newW, h);
-    logger.info('Main window resized via shortcut', { from: w, to: newW });
+    const newH = Math.max(minH, Math.min(maxH, Math.round(h + delta)));
+    if (newW === w && newH === h) return;
+    // Suspend auto-shrink for one tick so the renderer doesn't snap height
+    // back down to the .command-tab height right after we change it.
+    this._suspendAutoShrink = Date.now() + 500;
+    win.setContentSize(newW, newH);
+    win.webContents.send('window-resized-by-shortcut', { width: newW, height: newH });
+    logger.info('Main window resized via shortcut', { from: { w, h }, to: { w: newW, h: newH } });
+  }
+
+  /**
+   * Called from main.js's resize-window handler. Returns the height the
+   * renderer requested clamped to a minimum so the window can never look
+   * like a flat strip. (Height-clamping only fires when the renderer
+   * didn't just receive a manual resize — otherwise it'd undo the
+   * shortcut immediately.)
+   */
+  getMinMainHeight() {
+    return 70;
+  }
+
+  isAutoShrinkSuspended() {
+    return this._suspendAutoShrink && Date.now() < this._suspendAutoShrink;
   }
 
   /**
