@@ -462,9 +462,9 @@ class ApplicationController {
       "CommandOrControl+,": () => windowManager.showSettings(),
       "Alt+A": () => windowManager.toggleInteraction(),
       "Alt+R": () => this.toggleSpeechRecognition(),
-      // Main overlay window size: Ctrl+= bigger, Ctrl+- smaller
-      "Control+=": () => windowManager.stepMainWindowSize(40),
-      "Control+-": () => windowManager.stepMainWindowSize(-40),
+      // Main overlay window size: Ctrl+] bigger, Ctrl+[ smaller
+      "Control+]": () => windowManager.stepMainWindowSize(40),
+      "Control+[": () => windowManager.stepMainWindowSize(-40),
       // Overlay transparency: Alt+= more opaque, Alt+- more transparent
       // (down to fully invisible), Alt+0 brings everything back.
       "Alt+=": () => windowManager.setOverlayOpacity(0.1),
