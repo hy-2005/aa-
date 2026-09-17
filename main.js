@@ -1136,6 +1136,12 @@ class ApplicationController {
    * Ctrl+Shift+S — capture the screen and ADD it to the screenshot queue
    * (up to SCREENSHOT_QUEUE_MAX). Nothing is sent to the LLM yet; thumbnails
    * are broadcast so the response window can show the user what's queued.
+   *
+   * Rapid presses coalesce: a capture takes ~0.5s, and presses arriving
+   * mid-capture used to collide with captureService's "already in progress"
+   * guard and spam errors. Now a press during an in-flight capture just
+   * marks one pending shot, which runs as soon as the current one finishes
+   * — every press yields a capture, in order, with no error spam.
    */
   async captureScreenshotOnly() {
     if (!this.isReady) {
@@ -1149,6 +1155,23 @@ class ApplicationController {
       logger.warn("Screenshot queue full", { max: this.SCREENSHOT_QUEUE_MAX });
       return;
     }
+    if (this._captureInFlight) {
+      this._capturePending = true;
+      return;
+    }
+    this._captureInFlight = true;
+    try {
+      do {
+        this._capturePending = false;
+        // eslint-disable-next-line no-await-in-loop
+        await this._captureOneScreenshot();
+      } while (this._capturePending && this.screenshotQueue.length < this.SCREENSHOT_QUEUE_MAX);
+    } finally {
+      this._captureInFlight = false;
+    }
+  }
+
+  async _captureOneScreenshot() {
     try {
       const capture = await captureService.captureAndProcess();
       if (!capture.imageBuffer || !capture.imageBuffer.length) {
