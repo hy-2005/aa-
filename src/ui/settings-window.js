@@ -72,8 +72,32 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Test LLM Connection button handler
+    const testLlmBtn = document.getElementById('testLlmConnection');
+    const testStatus = document.getElementById('llmConnectionStatus');
+    if (testLlmBtn) {
+        testLlmBtn.addEventListener('click', async () => {
+            testStatus.textContent = 'Testing...';
+            try {
+                if (window.electronAPI && window.electronAPI.testGeminiConnection) {
+                    const r = await window.electronAPI.testGeminiConnection();
+                    if (r && r.success) {
+                        testStatus.textContent = '✓ Connected (' + (r.latency || 0) + 'ms)';
+                    } else {
+                        testStatus.textContent = '✗ ' + (r && r.error || 'Failed');
+                    }
+                } else {
+                    testStatus.textContent = 'Test API not available';
+                }
+            } catch (e) {
+                testStatus.textContent = '✗ ' + e.message;
+            }
+            setTimeout(() => { testStatus.textContent = ''; }, 5000);
+        });
+    }
+
     // Function to load settings into UI
-    const loadSettingsIntoUI = (settings) => {
+    let loadSettingsIntoUI = (settings) => {
         if (settings.speechProvider && speechProviderSelect) speechProviderSelect.value = settings.speechProvider;
         // Always set the input value, even if empty, so the user sees what's
         // currently configured (including env-derived defaults). Previously
@@ -113,6 +137,35 @@ document.addEventListener('DOMContentLoaded', () => {
         updateSpeechFieldStates();
     };
 
+    // ── New: load activeProvider and provider fields ──
+    const populateProviderFields = (settings) => {
+        if (!settings) return;
+        if (settings.activeProvider && document.getElementById('activeProvider')) {
+            document.getElementById('activeProvider').value = settings.activeProvider;
+        }
+        const p = settings.providers || {};
+        if (p.gemini) {
+            if (document.getElementById('geminiKey'))   document.getElementById('geminiKey').value   = p.gemini.apiKey || '';
+            if (document.getElementById('geminiModel')) document.getElementById('geminiModel').value = p.gemini.model || '';
+        }
+        if (p.openai) {
+            if (document.getElementById('openaiKey'))   document.getElementById('openaiKey').value   = p.openai.apiKey || '';
+            if (document.getElementById('openaiModel')) document.getElementById('openaiModel').value = p.openai.model || '';
+        }
+        if (p['openai-compatible']) {
+            if (document.getElementById('openaiCompatKey'))     document.getElementById('openaiCompatKey').value     = p['openai-compatible'].apiKey || '';
+            if (document.getElementById('openaiCompatModel'))  document.getElementById('openaiCompatModel').value  = p['openai-compatible'].model || '';
+            if (document.getElementById('openaiCompatBaseUrl'))document.getElementById('openaiCompatBaseUrl').value= p['openai-compatible'].baseUrl || '';
+        }
+    };
+
+    // Hook into existing load path
+    const _origLoadSettings = loadSettingsIntoUI;
+    loadSettingsIntoUI = function(settings) {
+        _origLoadSettings(settings);
+        populateProviderFields(settings);
+    };
+
     // Load settings when window opens
     window.api.receive('load-settings', (settings) => {
         loadSettingsIntoUI(settings);
@@ -150,7 +203,26 @@ document.addEventListener('DOMContentLoaded', () => {
         if (windowGapInput) settings.windowGap = windowGapInput.value;
         if (codingLanguageSelect) settings.codingLanguage = codingLanguageSelect.value;
         if (activeSkillSelect) settings.activeSkill = activeSkillSelect.value;
-        
+
+        // ── Provider config ──
+        const ap = document.getElementById('activeProvider');
+        if (ap) settings.activeProvider = ap.value;
+        settings.providers = {
+            gemini: {
+                apiKey:  (document.getElementById('geminiKey')   || {}).value || '',
+                model:   (document.getElementById('geminiModel') || {}).value || ''
+            },
+            openai: {
+                apiKey:  (document.getElementById('openaiKey')   || {}).value || '',
+                model:   (document.getElementById('openaiModel') || {}).value || ''
+            },
+            'openai-compatible': {
+                apiKey:  (document.getElementById('openaiCompatKey')     || {}).value || '',
+                model:   (document.getElementById('openaiCompatModel')  || {}).value || '',
+                baseUrl: (document.getElementById('openaiCompatBaseUrl')|| {}).value || ''
+            }
+        };
+
         window.api.send('save-settings', settings);
     };
 
