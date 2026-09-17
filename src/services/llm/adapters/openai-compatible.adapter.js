@@ -104,6 +104,17 @@ class OpenAICompatibleAdapter {
     return out;
   }
 
+  // If the model burned its entire output budget on thinking, the stripped
+  // answer is empty — returning that would render a blank, auto-collapsed
+  // response window that looks like a bug. Fail loudly instead.
+  _assertNonEmpty(response, fullText) {
+    if (response && response.trim()) return response;
+    const hadThink = /<think>/i.test(String(fullText || ''));
+    throw new Error(hadThink
+      ? '模型把输出额度全部用在了思考上，没有产生回答。请再次按 Ctrl+Shift+D 重试。'
+      : '模型返回了空回答，请重试。');
+  }
+
   async processText(text, { activeSkill, sessionMemory = [], programmingLanguage = null } = {}) {
     this._assertReady();
     const start = Date.now();
@@ -212,9 +223,10 @@ class OpenAICompatibleAdapter {
         model: this.model,
         messages,
         temperature: 0.7,
-        max_tokens: 4096
+        max_tokens: 8192
       });
-      const response = this._stripThinking(resp.choices?.[0]?.message?.content || '').trim();
+      const raw = resp.choices?.[0]?.message?.content || '';
+      const response = this._assertNonEmpty(this._stripThinking(raw).trim(), raw);
       return {
         response,
         metadata: {
@@ -239,7 +251,7 @@ class OpenAICompatibleAdapter {
         model: this.model,
         messages,
         temperature: 0.7,
-        max_tokens: 4096,
+        max_tokens: 8192,
         stream: true
       });
       let fullText = '';
@@ -256,7 +268,7 @@ class OpenAICompatibleAdapter {
         }
       }
       return {
-        response: emitted.trim(),
+        response: this._assertNonEmpty(emitted.trim(), fullText),
         metadata: {
           skill: activeSkill, programmingLanguage,
           processingTime: Date.now() - start, requestId: this.requestCount,
@@ -283,9 +295,10 @@ class OpenAICompatibleAdapter {
         model: this.model,
         messages,
         temperature: 0.7,
-        max_tokens: 4096
+        max_tokens: 8192
       });
-      const response = this._stripThinking(resp.choices?.[0]?.message?.content || '').trim();
+      const raw = resp.choices?.[0]?.message?.content || '';
+      const response = this._assertNonEmpty(this._stripThinking(raw).trim(), raw);
       return {
         response,
         metadata: {
@@ -310,7 +323,7 @@ class OpenAICompatibleAdapter {
         model: this.model,
         messages,
         temperature: 0.7,
-        max_tokens: 4096,
+        max_tokens: 8192,
         stream: true
       });
       let fullText = '';
@@ -327,7 +340,7 @@ class OpenAICompatibleAdapter {
         }
       }
       return {
-        response: emitted.trim(),
+        response: this._assertNonEmpty(emitted.trim(), fullText),
         metadata: {
           skill: activeSkill, programmingLanguage,
           processingTime: Date.now() - start, requestId: this.requestCount,

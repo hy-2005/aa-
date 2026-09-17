@@ -462,9 +462,14 @@ class ApplicationController {
       "CommandOrControl+,": () => windowManager.showSettings(),
       "Alt+A": () => windowManager.toggleInteraction(),
       "Alt+R": () => this.toggleSpeechRecognition(),
+      // Main overlay window size: Ctrl+= bigger, Ctrl+- smaller
+      "Control+=": () => windowManager.stepMainWindowSize(40),
+      "Control+-": () => windowManager.stepMainWindowSize(-40),
       // Overlay transparency: Alt+= more opaque, Alt+- more transparent
+      // (down to fully invisible), Alt+0 brings everything back.
       "Alt+=": () => windowManager.setOverlayOpacity(0.1),
       "Alt+-": () => windowManager.setOverlayOpacity(-0.1),
+      "Alt+0": () => windowManager.resetOverlayOpacity(),
       "CommandOrControl+Shift+T": () => windowManager.forceAlwaysOnTopForAllWindows(),
       "CommandOrControl+Shift+Alt+T": () => {
         const results = windowManager.testAlwaysOnTopForAllWindows();
@@ -479,7 +484,13 @@ class ApplicationController {
 
     Object.entries(shortcuts).forEach(([accelerator, handler]) => {
       const success = globalShortcut.register(accelerator, handler);
-      logger.debug("Global shortcut registered", { accelerator, success });
+      // INFO level: a failed registration silently redirects the keypress
+      // to the focused window (e.g. Chromium zoom), which looks like a bug.
+      if (success) {
+        logger.info("Global shortcut registered", { accelerator });
+      } else {
+        logger.error("Global shortcut FAILED to register (another app may own it)", { accelerator });
+      }
     });
   }
 

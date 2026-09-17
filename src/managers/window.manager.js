@@ -466,6 +466,19 @@ class WindowManager {
       }
     });
 
+    // Pin zoom: if a +/- hotkey ever fails to register system-wide, the
+    // keypress lands in the focused Chromium window and zooms the UI.
+    // Block every zoom combo at the renderer boundary and hold zoom level 0.
+    window.webContents.setZoomLevel(0);
+    window.webContents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown') return;
+      const key = (input.key || '').toLowerCase();
+      if ((input.control || input.alt) && ['+', '-', '=', '0', '_'].includes(key)) {
+        event.preventDefault();
+        window.webContents.setZoomLevel(0);
+      }
+    });
+
     // External links (GitHub, the website, Google AI Studio, etc.) must open in
     // the user's real browser, never inside the frameless overlay windows.
     // Deny any in-app window.open and hand http(s) URLs to the OS browser, and
@@ -1304,7 +1317,7 @@ class WindowManager {
    * framed dialogs (settings / onboarding) keep full opacity.
    */
   setOverlayOpacity(delta) {
-    const MIN = 0.15;
+    const MIN = 0;
     const MAX = 1.0;
     const next = Math.min(MAX, Math.max(MIN, Math.round((this.overlayOpacity + delta) * 100) / 100));
     if (next === this.overlayOpacity) return this.overlayOpacity;
@@ -1319,6 +1332,28 @@ class WindowManager {
     return this.overlayOpacity;
   }
 
+  /** Alt+0 — bring all overlay windows back to full opacity. */
+  resetOverlayOpacity() {
+    this.overlayOpacity = 0.999;
+    return this.setOverlayOpacity(0.001);
+  }
+
+  /**
+   * Ctrl+= / Ctrl+- — step the main overlay window's width. Clamped so it
+   * can never collapse to nothing or outgrow its configured max width.
+   */
+  stepMainWindowSize(delta) {
+    const win = this.windows.get('main');
+    if (!win || win.isDestroyed()) return;
+    const [w, h] = win.getContentSize();
+    const minW = 120;
+    const maxW = this.windowConfigs?.main?.width || 520;
+    const newW = Math.max(minW, Math.min(maxW, Math.round(w + delta)));
+    if (newW === w) return;
+    win.setContentSize(newW, h);
+    logger.info('Main window resized via shortcut', { from: w, to: newW });
+  }
+
   /**
    * Show the LLM response window in "screenshot queue" mode — the window
    * renders queued-shot thumbnails from broadcast events, so all this does
@@ -1328,6 +1363,8 @@ class WindowManager {
     const win = this.windows.get('llmResponse');
     if (win && !win.isDestroyed()) {
       this.showOnCurrentDesktop(win);
+      win.moveTop();
+      win.focus();
       win.setOpacity(Math.max(this.overlayOpacity, 0.6));
     }
   }
@@ -1773,6 +1810,10 @@ class WindowManager {
     const chatWindow = this.windows.get('chat');
     if (chatWindow && !chatWindow.isDestroyed()) {
       this.showOnCurrentDesktop(chatWindow);
+      // Multiple always-on-top windows stack; without raise+focus the chat
+      // window appears behind the overlay and users report "chat won't open".
+      chatWindow.moveTop();
+      chatWindow.focus();
       logger.debug('Chat window shown');
     }
   }
