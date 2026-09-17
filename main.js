@@ -1622,11 +1622,19 @@ class ApplicationController {
   }
 
   getSettings() {
-    // Surface every value the settings UI can edit, reading the live source
-    // of truth (process.env) so the UI shows exactly what the running app is
-    // using. Empty strings are returned rather than skipped so the UI can
-    // distinguish "unset" from "stale value from a previous load".
+    const providerState = providersStore.load();
+    const providers = providerState.providers || {};
     return {
+      schemaVersion: providersStore.SCHEMA_VERSION,
+      activeProvider: providerState.activeProvider,
+      providers: {
+        gemini: providers.gemini || { apiKey: "", model: "gemini-3.1-flash-lite" },
+        openai: providers.openai || { apiKey: "", model: "gpt-4o-mini" },
+        "openai-compatible": providers["openai-compatible"] || { apiKey: "", model: "", baseUrl: "" }
+      },
+      // Legacy bridge fields (existing UI may still read these)
+      geminiKey: process.env.GEMINI_API_KEY || "",
+
       codingLanguage: this.codingLanguage || "cpp",
       activeSkill: this.activeSkill || "dsa",
       appIcon: this.appIcon || "terminal",
@@ -1644,7 +1652,6 @@ class ApplicationController {
         (process.env.WHISPER_MANUAL_CAPTURE === "true" ? "manual" : "vad"),
       whisperResponseTarget: process.env.WHISPER_RESPONSE_TARGET || "both",
       whisperSegmentMs: process.env.WHISPER_SEGMENT_MS || "4000",
-      geminiKey: process.env.GEMINI_API_KEY || "",
 
       azureConfigured: !!process.env.AZURE_SPEECH_KEY && !!process.env.AZURE_SPEECH_REGION,
       speechAvailable: this.speechAvailable
@@ -1676,6 +1683,55 @@ class ApplicationController {
       if (settings.windowGap !== undefined) {
         const gap = Number(settings.windowGap);
         if (Number.isFinite(gap)) windowManager.setWindowGap(gap);
+      }
+
+      // ── Provider config (active + all keys) ──
+      if (settings.providers && typeof settings.providers === 'object') {
+        const next = providersStore.load();
+        const incoming = settings.providers;
+        for (const pid of ['gemini', 'openai', 'openai-compatible']) {
+          if (incoming[pid]) {
+            next.providers[pid] = {
+              ...next.providers[pid],
+              ...incoming[pid]
+            };
+          }
+        }
+        // activeProvider 切换：必须确保目标 provider 至少有 key
+        if (settings.activeProvider && ['gemini', 'openai', 'openai-compatible'].includes(settings.activeProvider)) {
+          next.activeProvider = settings.activeProvider;
+        }
+        // 校验目标 provider 字段
+        const target = next.providers[next.activeProvider] || {};
+        if (!target.apiKey || !String(target.apiKey).trim()) {
+          logger.warn('Active provider has no API key', { activeProvider: next.activeProvider });
+          return { success: false, error: `Active provider "${next.activeProvider}" requires an API key. Add one in Settings.` };
+        }
+        if (next.activeProvider === 'openai-compatible') {
+          if (!target.baseUrl || !target.model) {
+            return { success: false, error: 'OpenAI Compatible requires both baseUrl and model.' };
+          }
+          try { new URL(target.baseUrl); }
+          catch (_) { return { success: false, error: 'OpenAI Compatible baseUrl is not a valid URL.' }; }
+        }
+        providersStore.save(next);
+        // 镜像到 process.env（向后兼容 config.getApiKey）
+        const allProviders = next.providers;
+        if (allProviders.gemini && allProviders.gemini.apiKey) process.env.GEMINI_API_KEY = allProviders.gemini.apiKey;
+        if (allProviders.gemini && allProviders.gemini.model)  process.env.GEMINI_MODEL  = allProviders.gemini.model;
+        if (allProviders.openai && allProviders.openai.apiKey)  process.env.OPENAI_API_KEY = allProviders.openai.apiKey;
+        if (allProviders.openai && allProviders.openai.model)   process.env.OPENAI_MODEL  = allProviders.openai.model;
+        if (allProviders['openai-compatible']) {
+          if (allProviders['openai-compatible'].apiKey)  process.env.OPENAI_COMPAT_API_KEY  = allProviders['openai-compatible'].apiKey;
+          if (allProviders['openai-compatible'].model)   process.env.OPENAI_COMPAT_MODEL   = allProviders['openai-compatible'].model;
+          if (allProviders['openai-compatible'].baseUrl) process.env.OPENAI_COMPAT_BASE_URL = allProviders['openai-compatible'].baseUrl;
+        }
+        // 重新初始化 router 走新 provider
+        try { llmRouter.reload(); }
+        catch (e) { logger.warn('Failed to reload LLM router', { error: e.message }); }
+        // 触发 LLMService 内部状态重置（兼容老 updateApiKey 调用路径）
+        try { llmService.initializeClient(); } catch (_) {}
+        logger.info('LLM provider config updated', { activeProvider: next.activeProvider });
       }
 
       // ── Persist provider / API-key fields back to .env ──
@@ -1713,9 +1769,6 @@ class ApplicationController {
       if (settings.whisperSegmentMs !== undefined) {
         envUpdates.WHISPER_SEGMENT_MS = String(settings.whisperSegmentMs);
       }
-      if (settings.geminiKey !== undefined) {
-        envUpdates.GEMINI_API_KEY = settings.geminiKey;
-      }
 
       // Capture the previous whisper command BEFORE persisting — persistEnvUpdates
       // mutates process.env in place, so comparing afterwards would always read
@@ -1724,22 +1777,6 @@ class ApplicationController {
       const prevWhisperCommand = process.env.WHISPER_COMMAND || '';
 
       const persistedKeys = this.persistEnvUpdates(envUpdates);
-
-      // If the Gemini key was just saved, reinitialize the LLM service
-      // so the new client picks up the key. Without this, the test-
-      // connection button in the onboarding wizard fails with
-      // "Service not initialized" because the client was first created
-      // at app startup, before any key was set.
-      if (settings.geminiKey !== undefined && envUpdates.GEMINI_API_KEY !== undefined) {
-        try {
-          llmService.initializeClient();
-          logger.info("LLM service reinitialized after Gemini key update");
-        } catch (e) {
-          logger.warn("Failed to reinitialize LLM service after Gemini key update", {
-            error: e.message
-          });
-        }
-      }
 
       // Reinitialize speech service when provider OR whisper command
       // changes. Without the second check, the install flow (which
