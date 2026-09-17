@@ -462,13 +462,45 @@
                     Gemini Settings
                 </div>
                 <div class="settings-section-content">
-                    <div class="settings-item">
-                        <div>
-                            <div class="settings-item-label">Google API Key</div>
-                            <div class="settings-item-description">Your Google API key for Gemini models</div>
-                        </div>
-                        <input type="password" class="input-field" id="geminiKey" placeholder="Enter your Google API key">
+                    <div class="form-group">
+                        <label class="form-label" for="activeProvider">Active Provider</label>
+                        <select id="activeProvider" class="input-field">
+                            <option value="gemini">Google Gemini</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="openai-compatible">OpenAI Compatible (DeepSeek / Ollama / OpenRouter / Custom)</option>
+                        </select>
+                        <p class="form-hint">Select which LLM provider to use. All providers can be configured below.</p>
                     </div>
+
+                    <div id="provider-fields">
+                        <!-- Filled dynamically by settings-window.js based on registry -->
+                    </div>
+
+                    <hr style="margin: 16px 0; opacity: 0.2;">
+
+                    <div class="form-group">
+                        <label class="form-label" for="geminiKey">Google Gemini API Key</label>
+                        <input type="password" class="input-field" id="geminiKey" placeholder="Enter your Google API key">
+                        <label class="form-label" for="geminiModel" style="margin-top:8px;">Gemini Model</label>
+                        <input type="text" class="input-field" id="geminiModel" placeholder="gemini-3.1-flash-lite">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="openaiKey">OpenAI API Key</label>
+                        <input type="password" class="input-field" id="openaiKey" placeholder="sk-...">
+                        <label class="form-label" for="openaiModel" style="margin-top:8px;">OpenAI Model</label>
+                        <input type="text" class="input-field" id="openaiModel" placeholder="gpt-4o-mini">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">OpenAI Compatible (DeepSeek / Ollama / OpenRouter / Custom)</label>
+                        <input type="password" class="input-field" id="openaiCompatKey" placeholder="API Key">
+                        <input type="text" class="input-field" id="openaiCompatModel" placeholder="Model (deepseek-chat, llama3, ...)" style="margin-top:8px;">
+                        <input type="text" class="input-field" id="openaiCompatBaseUrl" placeholder="Base URL (https://api.deepseek.com/v1)" style="margin-top:8px;">
+                    </div>
+
+                    <button id="testLlmConnection" class="secondary-button" style="margin-top:8px;">Test LLM Connection</button>
+                    <span id="llmConnectionStatus" style="margin-left:8px;"></span>
                 </div>
             </div>
             
