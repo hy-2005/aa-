@@ -139,7 +139,12 @@ class WindowManager {
     
     // Window binding properties
     this.bindWindows = true; // Enable window binding by default
-    this.windowGap = 10; // Small gap between windows
+    // Zero gap — LLM response / screenshot strip should be flush against
+    // the bottom of the navigation bar. The previous 10px gap made the
+    // two panels look like separate, disconnected windows; with gap=0
+    // they read as a single stack: navigation bar at the top, AI
+    // response / queue strip immediately below, no visible seam.
+    this.windowGap = 0;
     this.boundWindowsPosition = { x: 0, y: 0 }; // Track position of bound windows
     
     this.windowConfigs = {
@@ -169,16 +174,18 @@ class WindowManager {
         title: 'Chat'
       },
       llmResponse: {
-        // Default sized for "compact peek" — sits in the top-left
-        // corner over the browser without obscuring the problem area.
-        // The previous 960x540 baseline drowned the LeetCode problem
-        // text (especially on 13"-14" laptops); 600x320 leaves the
-        // question visible and still shows ~3-5 lines of LLM prose.
-        // User can grow via Ctrl+] up to 1400x900, or shrink via
-        // Ctrl+[ all the way to minHeight 20 — see
+        // Default 800×400 — the size the AI response "should be" per
+        // user feedback: wide enough to show a code block without a
+        // horizontal scrollbar, tall enough for ~12 lines of prose
+        // without scrolling, but still leaves the bulk of the screen
+        // visible for the user's actual problem / interview. The
+        // previous 600×320 was too narrow for a single ~80-char code
+        // line, and forced every LLM response into a wrapped, ugly
+        // layout. User can grow via Ctrl+] up to 1400×900, or shrink
+        // via Ctrl+[ all the way to minHeight 20 — see
         // stepOverlayWindowSize below for the floor.
-        width: 600,
-        height: 320,
+        width: 800,
+        height: 400,
         minWidth: 320,
         minHeight: 20,
         maxWidth: 1400,
@@ -1179,17 +1186,13 @@ class WindowManager {
     const [mainW, mainH] = mainWin.getSize();
     const [tW, tH] = target.getSize();
 
-    const display = this.currentDisplay || screen.getPrimaryDisplay();
-    const { x: displayX, y: displayY, width: screenW, height: screenH } = display.workArea;
-    const topMargin = 20;
-
-    // Same X as main, Y = mainY + mainH + gap. Clamp to screen so the
-    // overlay never ends up half off-screen when main is dragged into a
-    // corner.
-    const desiredX = mainX;
-    const desiredY = mainY + mainH + this.windowGap;
-    const x = Math.max(displayX, Math.min(displayX + screenW - tW, desiredX));
-    const y = Math.max(displayY + topMargin, Math.min(displayY + screenH - tH, desiredY));
+    // Same X as main, Y = mainY + mainH + gap. NO screen clamp — main
+    // can legitimately be parked off-screen by the user (and we want
+    // the overlay to follow it there too, otherwise it would "snap back"
+    // every time main is moved past the visible work area). With
+    // windowGap = 0 the two panels read as one continuous stack.
+    const x = mainX;
+    const y = mainY + mainH + this.windowGap;
 
     target.setPosition(x, y);
 
@@ -1200,25 +1203,26 @@ class WindowManager {
     });
   }
 
-  // Move all overlay windows together (main + chat + llmResponse) by a delta,
-// with screen bounds clamping. Works regardless of bindWindows state so
-// Alt+arrow / Ctrl+arrow always respond, even when window binding is off.
+  // Move all overlay windows together (main + chat + llmResponse) by a delta.
+  // No screen-edge clamping — user feedback was that clamping caused lag
+  // ("窗口边长", "移动延迟") and compatibility issues across multi-monitor
+  // + DPI setups where the work-area origin isn't always where the OS
+  // reports it. Off-screen positions are fine: the user can drag the
+  // window back into view, and content-protection still hides the pixels
+  // from a screen recorder while the window is offscreen anyway.
   moveBoundWindows(deltaX, deltaY) {
     if (this.isStealthMode) return; // Don't reposition while hidden
     const mainWindow = this.windows.get('main');
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
-    const display = this.currentDisplay || screen.getPrimaryDisplay();
-    const { x: displayX, y: displayY, width: screenWidth, height: screenHeight } = display.workArea;
-    const topMargin = 20;
-
     // Anchor on main window for bounds calculations
     const [mainX, mainY] = mainWindow.getPosition();
     const [mainWidth, mainHeight] = mainWindow.getSize();
 
-    // New main position clamped to screen
-    const newMainX = Math.max(displayX, Math.min(displayX + screenWidth - mainWidth, mainX + deltaX));
-    const newMainY = Math.max(displayY + topMargin, Math.min(displayY + screenHeight - mainHeight, mainY + deltaY));
+    // Unbounded delta — let the window travel wherever the user drags
+    // it (including entirely off-screen).
+    const newMainX = mainX + deltaX;
+    const newMainY = mainY + deltaY;
 
     const dxApplied = newMainX - mainX;
     const dyApplied = newMainY - mainY;
@@ -1233,13 +1237,13 @@ class WindowManager {
       if (!w || w.isDestroyed()) return;
       const [x, y] = w.getPosition();
       const [width, height] = w.getSize();
-      let nx = Math.max(displayX, Math.min(displayX + screenWidth - width, x + dxApplied));
-      let ny = Math.max(displayY, Math.min(displayY + screenHeight - height, y + dyApplied));
+      let nx = x + dxApplied;
+      let ny = y + dyApplied;
       if (this.bindWindows && (type === 'llmResponse' || type === 'screenshotQueue')) {
-        // Column layout: pin llmResponse + the queue strip below main with the gap
+        // Column layout: pin llmResponse + the queue strip directly
+        // under main, flush (windowGap = 0) so the two panels read as
+        // one stack.
         ny = newMainY + mainHeight + this.windowGap;
-        // Clamp horizontal again in case main moved beyond screen
-        nx = Math.max(displayX, Math.min(displayX + screenWidth - width, nx));
       }
       w.setPosition(nx, ny);
     });

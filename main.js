@@ -1339,7 +1339,12 @@ class ApplicationController {
     const startTime = Date.now();
 
     try {
-      windowManager.showLLMLoading();
+      // No windowManager.showLLMLoading() here — the user wants the
+      // answer to appear directly on top of (i.e. replacing) the empty
+      // AI-response state, not a separate "loading" window popping in
+      // first. The screenshot-queue strip already gives the user visual
+      // feedback ("sending N shots…") while the LLM is in flight; once
+      // the answer arrives we just show it.
       windowManager.broadcastToAllWindows("screenshot-queue-sending", {
         count: items.length
       });
@@ -1427,7 +1432,10 @@ class ApplicationController {
         messageId,
         skill: this.activeSkill
       });
-      windowManager.showLLMLoading();
+      // No windowManager.showLLMLoading() — see the matching comment in
+      // the screenshot-send branch. We don't pop a "loading" window up
+      // before the answer; the streaming chunks below + the final
+      // showLLMResponse() below give the user the response directly.
 
       const llmResult = await llmService.processTextWithSkillStream(
         text,
@@ -1599,8 +1607,13 @@ class ApplicationController {
         messageId,
         skill: this.activeSkill
       });
+      // No windowManager.showLLMLoading() — see the matching comment in
+      // the screenshot-send branch. The voice transcript window itself
+      // shows the in-progress chunks via sendToVoiceResponseWindows;
+      // popping a separate loading indicator before the answer just
+      // creates a flicker the user complained about.
       if (this.shouldShowVoiceOverlay()) {
-        windowManager.showLLMLoading();
+        // Intentionally no-op: previously called windowManager.showLLMLoading().
       }
       const llmResult = await llmService.processTranscriptionWithIntelligentResponseStream(
         cleanText,
