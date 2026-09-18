@@ -1988,41 +1988,52 @@ class WindowManager {
     const llmWindow = this.windows.get('llmResponse');
     if (!llmWindow || this.isScreenBeingShared) return;
 
-    const optimalSize = this.calculateOptimalWindowSize(contentMetrics);
-
-    // Clamp content-driven size to the configured window max so the
-    // calculation can't produce something outside the framework.
-    const cfg = this.windowConfigs.llmResponse || {};
-    const maxW = cfg.maxWidth || 1920;
-    const maxH = cfg.maxHeight || 1200;
-    const contentW = Math.min(Math.round(Number(optimalSize.width)) || 1280, maxW);
-    const contentH = Math.min(Math.round(Number(optimalSize.height)) || 620, maxH);
-
-    // If the user has previously pressed Ctrl+] to enlarge this window,
-    // the dialled-in size is recorded in _currentSizes. Treat it as a
-    // floor — content should fit inside the user's preferred frame, NOT
-    // collapse the frame back down to whatever the content happens to
-    // measure. First-launch / never-resized users still get the pure
-    // content-driven size.
+    // If the user has previously dialled in a size via Ctrl+[/], that
+    // preference is the SOURCE OF TRUTH — NOT the content-driven size.
+    // Otherwise every response would either:
+    //   (a) yank a user-tuned window back to whatever the content
+    //       happens to measure this turn, or
+    //   (b) call `positionBoundWindows()` which snaps the navigation
+    //       bar back to top-center of the screen (the "every shortcut
+    //       jumps the window" / "main window keeps moving to the
+    //       middle of the screen" complaint).
+    // First-launch / never-resized users still get the pure
+    // content-driven size as a sensible default.
     const lastSize = this._currentSizes.llmResponse;
-    const width = lastSize ? Math.max(lastSize.w, contentW) : contentW;
-    const height = lastSize ? Math.max(lastSize.h, contentH) : contentH;
-
-    llmWindow.setSize(width, height);
-
-    // If windows are bound, position them together; otherwise center the LLM window
-    if (this.bindWindows) {
-      this.positionBoundWindows();
+    let width;
+    let height;
+    if (lastSize) {
+      width = lastSize.w;
+      height = lastSize.h;
     } else {
-      this.centerWindow(llmWindow);
+      const optimalSize = this.calculateOptimalWindowSize(contentMetrics);
+      const cfg = this.windowConfigs.llmResponse || {};
+      const maxW = cfg.maxWidth || 1920;
+      const maxH = cfg.maxHeight || 1200;
+      width = Math.min(Math.round(Number(optimalSize.width)) || 1280, maxW);
+      height = Math.min(Math.round(Number(optimalSize.height)) || 620, maxH);
     }
+
+    try {
+      llmWindow.setContentSize(width, height);
+    } catch (_) {
+      try { llmWindow.setSize(width, height); } catch (_) { /* ignore */ }
+    }
+
+    // Slide the LLM window directly under the navigation bar using the
+    // main window's CURRENT position. We do NOT call
+    // `positionBoundWindows()` here — that path re-anchors main to a
+    // fixed top-center spot, which is exactly what the user reported
+    // ("导航栏位置被强制回到桌面中心"). The main bar's x/y stays wherever
+    // the user last placed it; only the LLM panel slides.
+    try {
+      this.positionOverlayUnderMain('llmResponse');
+    } catch (_) { /* ignore */ }
 
     logger.debug('LLM window resized', {
       newSize: `${width}x${height}`,
-      contentDrivenSize: `${contentW}x${contentH}`,
       userPreferredSize: lastSize ? `${lastSize.w}x${lastSize.h}` : null,
-      basedOnContent: !!contentMetrics,
-      boundWindows: this.bindWindows
+      basedOnContent: !lastSize && !!contentMetrics
     });
   }
 
