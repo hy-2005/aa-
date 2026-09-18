@@ -530,7 +530,16 @@ class WindowManager {
         hasShadow: false,
         useContentSize: windowConfig.useContentSize || false,
         thickFrame: false,
-        focusable: true,
+        // OS-level focus off. The overlay sits on top of the user's
+        // browser / IDE; if it ever took focus, Chromium would steal it
+        // away from the foreground app and proctoring software would
+        // flag "user left the page" — even though the user only pressed
+        // a hotkey. With focusable: false the OS focus chain doesn't
+        // touch this window at all: the browser stays foreground, mouse
+        // events still flow (so Alt+A "enter interaction mode" still
+        // works), keyboard hotkeys still fire (globalShortcut is
+        // process-wide, not window-bound).
+        focusable: false,
         ...(process.platform === 'darwin' && {
           titleBarStyle: 'hiddenInset',
           trafficLightPosition: { x: -100, y: -100 },
@@ -553,6 +562,12 @@ class WindowManager {
         closable: false,
         hasShadow: false,
         thickFrame: false,
+        // See note in the main branch: proctoring software detects
+        // focus loss on the foreground browser as "user left the page",
+        // which leaks that they triggered an overlay. focusable: false
+        // keeps the AI-response window OUT of the OS focus chain while
+        // still rendering its content on top of the browser.
+        focusable: false,
         ...(process.platform === 'darwin' && {
           titleBarStyle: 'hiddenInset',
           trafficLightPosition: { x: -100, y: -100 },
@@ -577,6 +592,7 @@ class WindowManager {
         closable: false,
         hasShadow: false,
         thickFrame: false,
+        focusable: false,
         ...(process.platform === 'darwin' && {
           titleBarStyle: 'hiddenInset',
           trafficLightPosition: { x: -100, y: -100 },
@@ -600,6 +616,7 @@ class WindowManager {
         maximizable: false,
         closable: false,
         hasShadow: true,
+        focusable: false,
         ...(process.platform === 'darwin' && {
           titleBarStyle: 'hiddenInset',
           trafficLightPosition: { x: -100, y: -100 },
@@ -1234,7 +1251,12 @@ class WindowManager {
       setTimeout(() => {
         if (win.isDestroyed()) return;
         win.show();
-        win.focus();
+        // Note: we deliberately do NOT call win.focus() here. The
+        // overlay windows are created with focusable: false specifically
+        // so the user's browser / IDE stays foreground — proctoring
+        // software flags focus loss as "user left the page", which is
+        // exactly the leak we're closing. The window renders on top via
+        // always-on-top without ever entering the OS focus chain.
         setMacOSAlwaysOnTop();
         setTimeout(() => { if (!win.isDestroyed()) setMacOSAlwaysOnTop(); }, 100);
         // Keep LLM window visible across workspaces; others revert
@@ -1251,7 +1273,8 @@ class WindowManager {
       win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
       win.setAlwaysOnTop(true);
       win.show();
-      win.focus();
+      // See macOS branch above — no win.focus() to keep the browser's
+      // foreground focus intact.
       setTimeout(() => {
         if (win.isDestroyed()) return;
         if (!isLLM) {
@@ -1396,10 +1419,9 @@ class WindowManager {
     });
 
     this.isVisible = true;
-    const activeWindow = this.windows.get(this.activeWindow);
-    if (activeWindow) {
-      activeWindow.focus();
-    }
+    // No activeWindow.focus() — overlay windows are focusable:false so
+    // their focus() calls are no-ops anyway, and we don't want any
+    // cross-platform quirk to ever let focus shift off the browser.
 
     logger.info('All windows shown on current desktop', {
       activeWindow: this.activeWindow,
@@ -2316,7 +2338,8 @@ class WindowManager {
     try { this.positionOverlayUnderMain('screenshotQueue'); } catch (e) { logger.warn('positionOverlayUnderMain failed (queue)', { err: e.message }); }
     try { this.showOnCurrentDesktop(win); } catch (e) { logger.warn('showOnCurrentDesktop failed (queue)', { err: e.message }); }
     try { win.moveTop(); } catch (_) { /* ignore */ }
-    try { win.focus(); } catch (_) { /* ignore */ }
+    // No win.focus() — focusable:false keeps the strip out of the OS
+    // focus chain so the browser stays foreground.
     logger.info('Screenshot queue shown', {
       visible: win.isVisible(),
       bounds: win.getBounds ? win.getBounds() : null
@@ -2401,7 +2424,11 @@ class WindowManager {
     try { this.positionOverlayUnderMain('llmResponse'); } catch (e) { logger.warn('positionOverlayUnderMain failed', { err: e.message }); }
     try { this.showOnCurrentDesktop(win); } catch (e) { logger.warn('showOnCurrentDesktop failed', { err: e.message }); }
     try { win.moveTop(); } catch (e) { logger.warn('moveTop failed', { err: e.message }); }
-    try { win.focus(); } catch (e) { logger.warn('focus failed', { err: e.message }); }
+    // No win.focus() — the entire point of this branch is to slide the
+    // AI response under the navigation bar without pulling it off the
+    // foreground app. Calling focus() would yank focus away from the
+    // user's browser / IDE, which proctoring software flags as
+    // "user left the page" even though they only pressed a hotkey.
     logger.info('LLM window brought to front', {
       reason,
       visible: win.isVisible(),
@@ -2902,10 +2929,11 @@ class WindowManager {
     const chatWindow = this.windows.get('chat');
     if (chatWindow && !chatWindow.isDestroyed()) {
       this.showOnCurrentDesktop(chatWindow);
-      // Multiple always-on-top windows stack; without raise+focus the chat
-      // window appears behind the overlay and users report "chat won't open".
+      // Multiple always-on-top windows stack; moveTop() raises the chat
+      // window above the other overlays without pulling it into the OS
+      // focus chain. We deliberately don't focus() — proctoring software
+      // flags focus loss on the browser as "user left the page".
       chatWindow.moveTop();
-      chatWindow.focus();
       logger.debug('Chat window shown');
     }
   }
