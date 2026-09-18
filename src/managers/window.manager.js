@@ -1045,24 +1045,41 @@ class WindowManager {
     const display = this.currentDisplay || screen.getPrimaryDisplay();
     const { x: displayX, y: displayY, width: screenWidth, height: screenHeight } = display.workArea || display.workAreaSize;
     
-    if (this.bindWindows && (type === 'main' || type === 'llmResponse')) {
-      // Position bound windows together
-      this.positionBoundWindows();
+    if (type === 'main') {
+      // Pin main at the work-area's top-left corner on creation. The
+      // previous path delegated to positionBoundWindows() which then
+      // centered main horizontally on the screen — that's exactly the
+      // "启动时默认窗口位置还是在中心" bug the user reported.
+      // positionBoundWindows() is only meant for "where does the LLM
+      // sit relative to main", not "where does main sit on screen".
+      window.setPosition(displayX, displayY);
+      logger.debug('Positioned main at work-area top-left', {
+        type, position: `${displayX},${displayY}`, display: display.id || 'primary'
+      });
       return;
     }
-    
+    if (type === 'llmResponse' && this.bindWindows) {
+      // LLM is positioned relative to wherever main currently is —
+      // use the same logic as bringLLMWindowToFront, no screen-center
+      // snap. The LLM window is created hidden, so this is just the
+      // resting position for the first bring-to-front.
+      this.positionOverlayUnderMain('llmResponse');
+      logger.debug('Positioned llmResponse under main (relative)', {
+        type, display: display.id || 'primary'
+      });
+      return;
+    }
+
     // All windows positioned at top of screen with small margin
     const topMargin = 20;
     const [windowWidth] = window.getSize();
-    
+
     const positions = {
-      main: { x: displayX, y: displayY },
       chat: { x: displayX + screenWidth - windowWidth - 50, y: displayY + topMargin },
-      llmResponse: { x: displayX + (screenWidth - windowWidth) / 2, y: displayY + topMargin },
       settings: { x: displayX + (screenWidth - windowWidth) / 2, y: displayY + topMargin }
     };
 
-    const position = positions[type] || { x: displayX + 100, y: displayY + topMargin };
+    const position = positions[type] || { x: displayX, y: displayY };
     window.setPosition(position.x, position.y);
     
     logger.debug('Positioned window at top', {
@@ -1073,51 +1090,38 @@ class WindowManager {
     });
   }
 
-  // New method to position bound windows (vertical column layout) - Always at top
+  // Slide the LLM response directly under main with the configured gap.
+// We deliberately do NOT touch main's position here — binding is a
+// directional relationship ("LLM follows main"), not a joint layout
+// that resets both. The previous implementation centered BOTH windows
+// on screen, which is the "启动时默认窗口位置还是在中心" bug — and the
+// "navigation bar gets yanked back to screen-center" complaint on every
+// `setWindowBinding(true)` toggle.
   positionBoundWindows() {
     const mainWindow = this.windows.get('main');
     const llmWindow = this.windows.get('llmResponse');
 
-    if (!mainWindow || !llmWindow) return;
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (!llmWindow || llmWindow.isDestroyed()) return;
+
+    const [mainX, mainY] = mainWindow.getPosition();
+    const [mainW, mainH] = mainWindow.getSize();
 
     const display = this.currentDisplay || screen.getPrimaryDisplay();
-    const { x: displayX, y: displayY, width: screenWidth, height: screenHeight } = display.workArea;
+    const { x: displayX, y: displayY, width: screenW, height: screenH } = display.workArea;
 
-    const [mainWidth, mainHeight] = mainWindow.getSize();
-    const [llmWidth, llmHeight] = llmWindow.getSize();
+    // Same X as main; Y = mainY + mainH + gap, clamped so it doesn't
+    // spill off the screen edge when main is dragged near a boundary.
+    this.positionOverlayUnderMain('llmResponse');
 
-    // Always position at the top of the screen with small margin
-    const topMargin = 20;
-    const startY = displayY + topMargin;
+    // Track the main-window anchor so external callers (settings UI,
+    // etc.) can read the current binding anchor.
+    this.boundWindowsPosition = { x: mainX, y: mainY };
 
-    // Use the wider window for horizontal centering
-    const maxWidth = Math.max(mainWidth, llmWidth);
-
-    // Center horizontally on the display
-    const xPosition = displayX + Math.round((screenWidth - maxWidth) / 2);
-
-    // Ensure windows don't go outside screen bounds horizontally
-    const adjustedMainX = Math.max(displayX, Math.min(displayX + screenWidth - mainWidth, xPosition));
-    const adjustedLlmX = Math.max(displayX, Math.min(displayX + screenWidth - llmWidth, xPosition));
-
-    // Position main window (top)
-    const mainX = adjustedMainX;
-    const mainY = startY;
-    mainWindow.setPosition(mainX, mainY);
-
-    // Position LLM response window below with gap
-    const llmX = adjustedLlmX;
-    const llmY = startY + mainHeight + this.windowGap;
-    llmWindow.setPosition(llmX, llmY);
-
-    // Update stored position (use main window position as reference)
-    this.boundWindowsPosition = { x: adjustedMainX, y: startY };
-
-    logger.debug('Positioned bound windows at top (column layout)', {
+    logger.debug('Positioned LLM under main (binding respected main position)', {
       mainPosition: `${mainX},${mainY}`,
-      llmPosition: `${llmX},${llmY}`,
+      mainSize: `${mainW}x${mainH}`,
       gap: this.windowGap,
-      topMargin: topMargin,
       display: display.id
     });
   }
@@ -1240,59 +1244,38 @@ class WindowManager {
     const llmWin = this.windows.get('llmResponse');
     const isLLM = llmWin && !llmWin.isDestroyed() && win.id === llmWin.id;
 
-    if (process.platform === 'darwin') {
-      // macOS: prevent space switching and keep visibility stable
-      win.hide();
-      win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-
-      const setMacOSAlwaysOnTop = () => {
-        if (win.isDestroyed()) return;
+    // Track whether we've ever run the heavy "make this window behave
+    // like an overlay" dance on this window. Subsequent show() calls
+    // take the fast path — just setAlwaysOnTop + show — instead of
+    // waiting on the 50/100/300/500 ms setTimeout chain that introduced
+    // visible lag when the user rapid-fires Ctrl+Alt+S / Ctrl+Alt+D /
+    // Ctrl+Shift+V while main is parked at the top boundary.
+    if (!win._openCluelyShown) {
+      win._openCluelyShown = true;
+      // First-show path: pick up the workspace + always-on-top level
+      // once, and don't pay that cost again.
+      try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch (_) {}
+      if (process.platform === 'darwin') {
         try {
-          win.setAlwaysOnTop(true, 'screen-saver', 2);
-        } catch {
-          try { win.setAlwaysOnTop(true, 'pop-up-menu', 2); }
+          try { win.setAlwaysOnTop(true, 'screen-saver', 2); }
+          catch { try { win.setAlwaysOnTop(true, 'pop-up-menu', 2); }
           catch { try { win.setAlwaysOnTop(true, 'floating', 2); }
-          catch { win.setAlwaysOnTop(true); }}
-        }
-      };
-
-      setMacOSAlwaysOnTop();
-
-      setTimeout(() => {
-        if (win.isDestroyed()) return;
-        win.show();
-        // Note: we deliberately do NOT call win.focus() here. The
-        // overlay windows are created with focusable: false specifically
-        // so the user's browser / IDE stays foreground — proctoring
-        // software flags focus loss as "user left the page", which is
-        // exactly the leak we're closing. The window renders on top via
-        // always-on-top without ever entering the OS focus chain.
-        setMacOSAlwaysOnTop();
-        setTimeout(() => { if (!win.isDestroyed()) setMacOSAlwaysOnTop(); }, 100);
-        // Keep LLM window visible across workspaces; others revert
-        setTimeout(() => {
-          if (win.isDestroyed()) return;
-          if (!isLLM) {
-            win.setVisibleOnAllWorkspaces(false);
-          }
-          setMacOSAlwaysOnTop();
-        }, 300);
-      }, 50);
-    } else {
-      // Linux/Windows
-      win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-      win.setAlwaysOnTop(true);
-      win.show();
-      // See macOS branch above — no win.focus() to keep the browser's
-      // foreground focus intact.
-      setTimeout(() => {
-        if (win.isDestroyed()) return;
-        if (!isLLM) {
-          win.setVisibleOnAllWorkspaces(false);
-        }
-        win.setAlwaysOnTop(true);
-      }, 500);
+          catch { win.setAlwaysOnTop(true); }}}
+        } catch (_) { /* ignore */ }
+      }
     }
+
+    // LLM stays on every workspace so it follows the user when they
+    // switch spaces; everything else is scoped to the current desktop.
+    // This used to be done via a 300/500 ms setTimeout after show() —
+    // doing it synchronously before show() removes that lag without
+    // changing the end state.
+    if (!isLLM) {
+      try { win.setVisibleOnAllWorkspaces(false); } catch (_) { /* ignore */ }
+    }
+
+    try { win.setAlwaysOnTop(true); } catch (_) { /* ignore */ }
+    try { win.show(); } catch (_) { /* ignore */ }
 
     logger.debug('Showing window on current desktop with enhanced always-on-top', {
       platform: process.platform,
