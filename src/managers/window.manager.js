@@ -85,6 +85,23 @@ class WindowManager {
         title: 'AI Response',
         alwaysOnTop: true
       },
+      screenshotQueue: {
+        // Thin horizontal strip that lives directly under the main router
+        // bar while the user is accumulating screenshots with Ctrl+Alt+S.
+        // Height ~120px keeps the thumbs readable without dominating the
+        // screen, and the row scrolls horizontally when more than ~5
+        // captures are queued. Width is wide enough to show the hint
+        // label + ~5 140px thumbs side-by-side.
+        width: 900,
+        height: 120,
+        minWidth: 600,
+        minHeight: 100,
+        maxWidth: 1400,
+        maxHeight: 200,
+        file: 'screenshot-queue.html',
+        title: 'Screenshot Queue',
+        alwaysOnTop: true
+      },
       settings: {
         width: 400,
         height: 380,
@@ -144,6 +161,7 @@ class WindowManager {
       await this.createMainWindow({ autoShow: showMainWindow });
       await this.createChatWindow();
       await this.createLLMResponseWindow();
+      await this.createScreenshotQueueWindow();
       await this.createSettingsWindow();
       
       this.setupWindowEventHandlers();
@@ -290,6 +308,16 @@ class WindowManager {
     return window;
   }
 
+  async createScreenshotQueueWindow() {
+    if (this.windows.has('screenshotQueue')) {
+      return this.windows.get('screenshotQueue');
+    }
+    const window = await this.createWindow('screenshotQueue');
+    this.windows.set('screenshotQueue', window);
+    window.hide();
+    return window;
+  }
+
   async createSettingsWindow() {
     if (this.windows.has('settings')) {
       return this.windows.get('settings');
@@ -430,6 +458,30 @@ class WindowManager {
         }),
         level: process.platform === 'darwin' ? 'floating' : undefined,
       };
+    } else if (type === 'screenshotQueue') {
+      // Screenshot queue strip — frameless, transparent, mirrors llmResponse
+      // visual style but is its own window so screenshots (Ctrl+Alt+S)
+      // don't have to drag the full AI-response panel on screen just to
+      // show a 120px-tall row of thumbs.
+      browserWindowOptions = {
+        ...baseOptions,
+        frame: false,
+        titleBarStyle: 'hidden',
+        transparent: true,
+        backgroundColor: '#00000000',
+        resizable: true,
+        minimizable: false,
+        maximizable: false,
+        closable: false,
+        hasShadow: false,
+        thickFrame: false,
+        ...(process.platform === 'darwin' && {
+          titleBarStyle: 'hiddenInset',
+          trafficLightPosition: { x: -100, y: -100 },
+          acceptFirstMouse: true
+        }),
+        level: process.platform === 'darwin' ? 'floating' : undefined,
+      };
     } else if (type === 'chat') {
       // Chat window - frameless without window controls
       browserWindowOptions = {
@@ -505,10 +557,11 @@ class WindowManager {
       // "AI response doesn't show" — it's actually "AI response window
       // died and nobody noticed, so the next show() goes to /dev/null".
       //
-      // Only auto-recreate the overlay windows (main / chat / llmResponse).
-      // Settings / onboarding are user-initiated and have their own recovery
-      // paths; recreating them mid-onboarding would lose state.
-      const recoverable = ['main', 'chat', 'llmResponse'].includes(type);
+      // Only auto-recreate the overlay windows (main / chat / llmResponse /
+      // screenshotQueue). Settings / onboarding are user-initiated and
+      // have their own recovery paths; recreating them mid-onboarding
+      // would lose state.
+      const recoverable = ['main', 'chat', 'llmResponse', 'screenshotQueue'].includes(type);
       if (!recoverable) return;
       const existing = this.windows.get(type);
       if (existing && existing !== window) return; // already replaced
@@ -525,6 +578,8 @@ class WindowManager {
             await this.createChatWindow();
           } else if (type === 'llmResponse') {
             await this.createLLMResponseWindow();
+          } else if (type === 'screenshotQueue') {
+            await this.createScreenshotQueueWindow();
           }
           // Re-apply current interaction mode so the new window isn't
           // stuck in the wrong click-through state.
@@ -658,12 +713,15 @@ class WindowManager {
           }
         });
 
-        // When resized (by user or programmatically), keep LLM just under main
-        // — NOT the old "snap both to top-center" positionBoundWindows, which
-        // was jumping main back to a fixed location every time the user
-        // resized anything. We only nudge LLM down so it stays glued to main.
+        // When resized (by user or programmatically), keep LLM + the
+        // screenshot-queue strip glued directly under main — NOT the old
+        // "snap both to top-center" positionBoundWindows, which was jumping
+        // main back to a fixed location every time the user resized
+        // anything. We only nudge the overlays down so they stay glued to
+        // main.
         window.on('resize', () => {
-          this.positionLLMRelativeToMain();
+          this.positionOverlayUnderMain('llmResponse');
+          this.positionOverlayUnderMain('screenshotQueue');
         });
       } catch { /* ignore */ }
     }
@@ -932,31 +990,43 @@ class WindowManager {
    * currently the only window being shown at top-center (initial state).
    */
   positionLLMRelativeToMain() {
+    return this.positionOverlayUnderMain('llmResponse');
+  }
+
+  /**
+   * Generic "slide this overlay window directly under the main router
+   * window". Used by both the LLM response panel and the thin screenshot
+   * queue strip so they share a single positioning rule. No-op if main or
+   * the target overlay is missing/destroyed.
+   */
+  positionOverlayUnderMain(type) {
     const mainWin = this.windows.get('main');
-    const llmWin = this.windows.get('llmResponse');
+    const target = this.windows.get(type);
     if (!mainWin || mainWin.isDestroyed()) return;
-    if (!llmWin || llmWin.isDestroyed()) return;
+    if (!target || target.isDestroyed()) return;
 
     const [mainX, mainY] = mainWin.getPosition();
     const [mainW, mainH] = mainWin.getSize();
-    const [llmW, llmH] = llmWin.getSize();
+    const [tW, tH] = target.getSize();
 
     const display = this.currentDisplay || screen.getPrimaryDisplay();
     const { x: displayX, y: displayY, width: screenW, height: screenH } = display.workArea;
     const topMargin = 20;
 
-    // Same X as main, Y = mainY + mainH + gap. Clamp to screen so the LLM
-    // never ends up half off-screen when main is dragged into a corner.
+    // Same X as main, Y = mainY + mainH + gap. Clamp to screen so the
+    // overlay never ends up half off-screen when main is dragged into a
+    // corner.
     const desiredX = mainX;
     const desiredY = mainY + mainH + this.windowGap;
-    const x = Math.max(displayX, Math.min(displayX + screenW - llmW, desiredX));
-    const y = Math.max(displayY + topMargin, Math.min(displayY + screenH - llmH, desiredY));
+    const x = Math.max(displayX, Math.min(displayX + screenW - tW, desiredX));
+    const y = Math.max(displayY + topMargin, Math.min(displayY + screenH - tH, desiredY));
 
-    llmWin.setPosition(x, y);
+    target.setPosition(x, y);
 
-    logger.debug('LLM window positioned relative to main', {
+    logger.debug('Overlay positioned relative to main', {
+      type,
       main: { x: mainX, y: mainY, w: mainW, h: mainH },
-      llm: { x, y, w: llmW, h: llmH }
+      target: { x, y, w: tW, h: tH }
     });
   }
 
@@ -987,15 +1057,15 @@ class WindowManager {
     // Move chat + llmResponse by the same applied delta so they stay in
     // lockstep with main. If bindWindows is on we re-stack (vertical
     // column); otherwise we just translate by the same delta.
-    ['chat', 'llmResponse'].forEach((type) => {
+    ['chat', 'llmResponse', 'screenshotQueue'].forEach((type) => {
       const w = this.windows.get(type);
       if (!w || w.isDestroyed()) return;
       const [x, y] = w.getPosition();
       const [width, height] = w.getSize();
       let nx = Math.max(displayX, Math.min(displayX + screenWidth - width, x + dxApplied));
       let ny = Math.max(displayY, Math.min(displayY + screenHeight - height, y + dyApplied));
-      if (this.bindWindows && type === 'llmResponse') {
-        // Column layout: pin llmResponse below main with the gap
+      if (this.bindWindows && (type === 'llmResponse' || type === 'screenshotQueue')) {
+        // Column layout: pin llmResponse + the queue strip below main with the gap
         ny = newMainY + mainHeight + this.windowGap;
         // Clamp horizontal again in case main moved beyond screen
         nx = Math.max(displayX, Math.min(displayX + screenWidth - width, nx));
@@ -1532,7 +1602,7 @@ class WindowManager {
     const next = Math.min(MAX, Math.max(MIN, Math.round((this.overlayOpacity + delta) * 100) / 100));
     if (next === this.overlayOpacity) return this.overlayOpacity;
     this.overlayOpacity = next;
-    ['main', 'chat', 'llmResponse'].forEach((type) => {
+    ['main', 'chat', 'llmResponse', 'screenshotQueue'].forEach((type) => {
       const win = this.windows.get(type);
       if (win && !win.isDestroyed()) {
         try { win.setOpacity(this.overlayOpacity); } catch (_) { /* ignore */ }
@@ -1555,7 +1625,7 @@ class WindowManager {
    */
   hideOverlaysForCapture() {
     const hidden = [];
-    ['main', 'chat', 'llmResponse'].forEach((type) => {
+    ['main', 'chat', 'llmResponse', 'screenshotQueue'].forEach((type) => {
       const win = this.windows.get(type);
       if (win && !win.isDestroyed() && win.isVisible()) {
         try { win.hide(); hidden.push(type); } catch (_) { /* ignore */ }
@@ -1572,7 +1642,7 @@ class WindowManager {
    * overlay, so the screenshot includes our own chat/llm-response chrome.
    */
   invalidateOverlaysForCapture() {
-    ['main', 'chat', 'llmResponse'].forEach((type) => {
+    ['main', 'chat', 'llmResponse', 'screenshotQueue'].forEach((type) => {
       const win = this.windows.get(type);
       if (win && !win.isDestroyed()) {
         try {
@@ -1619,7 +1689,7 @@ class WindowManager {
     // all grow proportionally with the window. The factor is clamped to
     // [MIN_ZOOM, MAX_ZOOM] so the text never becomes unreadable at either
     // extreme.
-    const targets = ['main', 'chat', 'llmResponse'];
+    const targets = ['main', 'chat', 'llmResponse', 'screenshotQueue'];
     const MIN_ZOOM = 0.7;
     const MAX_ZOOM = 2.0;
 
@@ -1687,10 +1757,12 @@ class WindowManager {
       setTimeout(() => { this._resizingByShortcut = false; }, 50);
     }
     if (anyResized) {
-      // Slide LLM directly under main so they stay glued together — NOT
+      // Slide the LLM response panel + the screenshot-queue strip
+      // directly under main so all three stay glued together — NOT
       // `positionBoundWindows`, which used to snap BOTH windows back to
       // top-center of the display on every shortcut press.
-      this.positionLLMRelativeToMain();
+      this.positionOverlayUnderMain('llmResponse');
+      this.positionOverlayUnderMain('screenshotQueue');
     }
   }
 
@@ -1718,37 +1790,62 @@ class WindowManager {
   }
 
   /**
-   * Show the LLM response window in "screenshot queue" mode — the window
-   * renders queued-shot thumbnails from broadcast events, so all this does
-   * is make sure it's visible. New windows default to full opacity.
+   * Show ONLY the thin screenshot-queue strip (no LLM response panel).
+   * Called from captureScreenshotOnly() right after a successful capture
+   * so the user immediately gets visual feedback (the new thumb pops in)
+   * without the AI-response window jumping on screen. The LLM panel is
+   * hidden if it was up — they share the slot directly under the main
+   * router, so showing both would stack / overlap.
    *
-   * The previous version just called `showOnCurrentDesktop` and trusted the
-   * window to re-show at its last position, which left three failure modes
-   * that all looked like "screenshot didn't work":
-   *
-   *   1. The window had been moved offscreen / behind another window and
-   *      `show()` re-emerged it there. `centerWindow` puts it back at top-
-   *      center where users actually look.
-   *   2. The user had been mashing Alt+- to make overlays transparent; the
-   *      cap of `Math.max(this.overlayOpacity, 0.6)` was supposed to guard
-   *      against this but if the previous overlayOpacity was 0 the window
-   *      ended up at 0.6 — visible, but easy to overlook if the user
-   *      expected full opacity. We now force full opacity for this one
-   *      window so the queue is impossible to miss.
-   *   3. `restoreOverlaysAfterCapture` was restoring `main`/`chat`
-   *      *before* `showScreenshotQueue` ran in some racing captures, so the
-   *      user saw their old chat window but no queue. The order in
-   *      `_captureOneScreenshot` already handles this, but we also
-   *      `moveTop()` here as belt-and-suspenders.
+   * The strip is positioned directly under the main router (not top-
+   * center of the display) and rides the global overlayOpacity so a
+   * user who dialled Alt+- down for stealth sees the queue at the same
+   * opacity as everything else.
    */
   showScreenshotQueue() {
-    const win = this.windows.get('llmResponse');
-    if (!win || win.isDestroyed()) return;
-    this.bringLLMWindowToFront('queue');
+    let win = this.windows.get('screenshotQueue');
+    if (!win || win.isDestroyed()) {
+      // Same defense-in-depth pattern as bringLLMWindowToFront: if the
+      // strip died (GPU crash, renderer crash) recreate it lazily so
+      // the user doesn't see a "nothing happened" after Ctrl+Alt+S.
+      logger.warn('screenshotQueue window missing/destroyed, recovering on demand');
+      try {
+        this.createScreenshotQueueWindow().then(() => {
+          this.showScreenshotQueue();
+        }).catch((err) => {
+          logger.error('screenshotQueue recovery failed', { error: err.message });
+        });
+        return;
+      } catch (err) {
+        logger.error('Could not schedule screenshotQueue recovery', { error: err.message });
+        return;
+      }
+    }
+    // Make sure the LLM panel isn't also showing — they share the slot
+    // under main and stacking them looks broken.
+    const llmWin = this.windows.get('llmResponse');
+    if (llmWin && !llmWin.isDestroyed() && llmWin.isVisible()) {
+      try { llmWin.hide(); } catch (_) { /* ignore */ }
+    }
+    try { win.setOpacity(this.overlayOpacity); } catch (e) { logger.warn('setOpacity failed (queue)', { err: e.message }); }
+    try { this.positionOverlayUnderMain('screenshotQueue'); } catch (e) { logger.warn('positionOverlayUnderMain failed (queue)', { err: e.message }); }
+    try { this.showOnCurrentDesktop(win); } catch (e) { logger.warn('showOnCurrentDesktop failed (queue)', { err: e.message }); }
+    try { win.moveTop(); } catch (_) { /* ignore */ }
+    try { win.focus(); } catch (_) { /* ignore */ }
     logger.info('Screenshot queue shown', {
       visible: win.isVisible(),
       bounds: win.getBounds ? win.getBounds() : null
     });
+  }
+
+  /** Hide the screenshot-queue strip. Called when an LLM response takes
+   *  over the slot under main, or when the queue is cleared. */
+  hideScreenshotQueue() {
+    const win = this.windows.get('screenshotQueue');
+    if (win && !win.isDestroyed() && win.isVisible()) {
+      try { win.hide(); } catch (_) { /* ignore */ }
+      logger.info('Screenshot queue hidden');
+    }
   }
 
   /**
@@ -1803,6 +1900,11 @@ class WindowManager {
     // window "leaks" at full brightness. Now all three stealth overlays
     // (main / chat / llmResponse) move together as one opacity group.
     try { win.setOpacity(this.overlayOpacity); } catch (e) { logger.warn('setOpacity failed', { err: e.message }); }
+    // Hide the screenshot-queue strip — they share the slot directly under
+    // main, so showing both would stack / overlap. The strip is re-shown
+    // by showScreenshotQueue() the next time the user presses Ctrl+Alt+S
+    // after the LLM response goes away.
+    try { this.hideScreenshotQueue(); } catch (_) { /* ignore */ }
     // Position the LLM window RELATIVE to wherever the main router window
     // currently is — same x, just below it with the configured gap. We no
     // longer call `centerWindow(win)` here, because that was snapping the
@@ -1810,7 +1912,7 @@ class WindowManager {
     // and the user reported "the LLM window keeps jumping around and ends
     // up invisible". Relative positioning keeps the user's chosen layout
     // intact across screenshot / send / clear actions.
-    try { this.positionLLMRelativeToMain(); } catch (e) { logger.warn('positionLLMRelativeToMain failed', { err: e.message }); }
+    try { this.positionOverlayUnderMain('llmResponse'); } catch (e) { logger.warn('positionOverlayUnderMain failed', { err: e.message }); }
     try { this.showOnCurrentDesktop(win); } catch (e) { logger.warn('showOnCurrentDesktop failed', { err: e.message }); }
     try { win.moveTop(); } catch (e) { logger.warn('moveTop failed', { err: e.message }); }
     try { win.focus(); } catch (e) { logger.warn('focus failed', { err: e.message }); }
