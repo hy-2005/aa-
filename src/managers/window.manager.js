@@ -912,7 +912,7 @@ class WindowManager {
     const [windowWidth] = window.getSize();
     
     const positions = {
-      main: { x: displayX + 50, y: displayY + topMargin },
+      main: { x: displayX, y: displayY },
       chat: { x: displayX + screenWidth - windowWidth - 50, y: displayY + topMargin },
       llmResponse: { x: displayX + (screenWidth - windowWidth) / 2, y: displayY + topMargin },
       settings: { x: displayX + (screenWidth - windowWidth) / 2, y: displayY + topMargin }
@@ -2267,8 +2267,14 @@ class WindowManager {
         
         switch (type) {
           case 'main':
-            newX = displayX + 50;
-            newY = displayY + topMargin;
+            // Anchor at the work-area's top-left (displayX, displayY).
+            // workArea already excludes the taskbar / menu bar, so (0, 0)
+            // inside workArea is the actual usable top-left of the screen.
+            // The previous `displayX + 50 / displayY + topMargin` placed
+            // the navigation bar slightly inset, which doesn't match how
+            // users perceive "top-left" (zero offset).
+            newX = displayX;
+            newY = displayY;
             break;
           case 'chat':
             newX = displayX + displayWidth - windowWidth - 50;
