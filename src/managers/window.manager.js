@@ -169,18 +169,18 @@ class WindowManager {
         title: 'Chat'
       },
       llmResponse: {
-        // Baseline deliberately small — the previous 1280x620 baseline
-        // combined with `_currentSizes` persistence meant a user who
-        // pressed Ctrl+] once ended up with a window the size of a
-        // primary monitor for every subsequent screenshot analysis.
-        // 960x540 is wide enough for code + prose side-by-side, but
-        // compact enough to leave the LeetCode / IDE clearly visible
-        // behind it (and matches what the user actually wants to read
-        // at a glance — the previous version drowned the screen).
-        width: 960,
-        height: 540,
-        minWidth: 640,
-        minHeight: 320,
+        // Default sized for "compact peek" — sits in the top-left
+        // corner over the browser without obscuring the problem area.
+        // The previous 960x540 baseline drowned the LeetCode problem
+        // text (especially on 13"-14" laptops); 600x320 leaves the
+        // question visible and still shows ~3-5 lines of LLM prose.
+        // User can grow via Ctrl+] up to 1400x900, or shrink via
+        // Ctrl+[ all the way to minHeight 20 — see
+        // stepOverlayWindowSize below for the floor.
+        width: 600,
+        height: 320,
+        minWidth: 320,
+        minHeight: 20,
         maxWidth: 1400,
         maxHeight: 900,
         file: 'llm-response.html',
@@ -1442,8 +1442,8 @@ class WindowManager {
   hideAllWindows() {
     if (this.isStealthMode) return; // already hidden
     this.windows.forEach((window, type) => {
-      if (type !== 'llmResponse') {
-        window.hide();
+      if (!window.isDestroyed()) {
+        try { window.hide(); } catch (_) { /* ignore */ }
       }
     });
 
@@ -2227,7 +2227,15 @@ class WindowManager {
         if (!win || win.isDestroyed()) continue;
         const cfg = this.windowConfigs?.[type] || {};
         const minW = cfg.minWidth || 200;
-        const minH = cfg.minHeight || 70;
+        // Floor of 20px lets the user Ctrl+[ the AI response / screenshot
+        // strip down to a single thin band. The previous floor of 70px
+        // left the LLM response stuck at a height that still occluded
+        // the browser — fine for a quick peek but useless when you want
+        // the panel to "basically disappear". `hideAllWindows()` and
+        // Ctrl+Shift+V are still the proper way to fully hide the panel;
+        // 20px is the shortcut's lower bound so the window stays
+        // grabbable / draggable.
+        const minH = cfg.minHeight || 20;
         const maxW = cfg.maxWidth || cfg.width || 1920;
         const maxH = cfg.maxHeight || cfg.height || 1200;
         const baselineW = cfg.width || 800;
