@@ -91,7 +91,7 @@
         /* Split layout improvements */
         .split-layout {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 2fr 3fr;
             gap: 0.75rem;
             height: 100vh;
             padding: 0;
@@ -532,6 +532,18 @@
                     console.log('[LLM-RESPONSE] show-loading received');
                     showLoadingState();
                 });
+
+                // Surface LLM / OCR errors in the window instead of letting
+                // main.js hide it in hideLLMResponse() — users reported
+                // "nothing pops up" because the window was being hidden
+                // immediately on failure. Now they see WHY it failed.
+                if (window.electronAPI.onOcrError) {
+                    window.electronAPI.onOcrError((_, err) => {
+                        const msg = (err && (err.error || err.message)) || '截图分析失败';
+                        console.error('[LLM-RESPONSE] ocr-error received:', msg);
+                        renderEmptyState(`分析失败：${msg}`);
+                    });
+                }
                 
                 // Listen for LLM response
                 window.electronAPI.onDisplayLlmResponse(function() {
@@ -553,11 +565,11 @@
                         console.log('[LLM-RESPONSE] response found:', !!response, 'length:', response?.length);
                         
                         if (!response) {
-                            console.error('[LLM-RESPONSE] No response content found!');
-                            hideLoadingState();
+                            console.error('[LLM-RESPONSE] No response content found — showing empty-state');
+                            renderEmptyState('模型返回了空内容。请再按一次 Ctrl+Alt+D 重试。');
                             return;
                         }
-                        
+
                         hideLoadingState();
                         displayResponse(actualData);
                         setupScrolling();
@@ -565,7 +577,7 @@
                         console.log('[LLM-RESPONSE] Handler completed successfully');
                     } catch (err) {
                         console.error('[LLM-RESPONSE] Error in handler:', err.message, err.stack);
-                        hideLoadingState();
+                        renderEmptyState(`渲染响应时出错：${err.message}`);
                     }
                 });
                 
@@ -617,18 +629,40 @@
         function calculateContentMetrics(response, codeBlocks) {
             // Count lines in the response
             const lineCount = response.split('\n').length;
-            
+
             // Check for long lines (over 80 characters)
             const hasLongLines = response.split('\n').some(line => line.length > 80);
-            
+
             // Count code blocks
             const codeBlockCount = codeBlocks.length;
-            
+
             // Estimate content complexity
             const hasCode = codeBlockCount > 0;
             const isLongContent = lineCount > 30;
             const hasMultipleCodeBlocks = codeBlockCount > 2;
-            
+
+            // Measure average line length across the *code* blocks (where wide
+            // lines actually hurt readability), and across the whole response as a
+            // fallback. This is what the main process uses to pick a window
+            // width wide enough to show the longest line without horizontal
+            // scrolling clipping the code.
+            let avgLineLength = 0;
+            if (hasCode) {
+                const allCodeLines = codeBlocks
+                    .flatMap(b => (b.code || '').split('\n'))
+                    .filter(l => l.length > 0);
+                if (allCodeLines.length > 0) {
+                    const total = allCodeLines.reduce((sum, l) => sum + l.length, 0);
+                    avgLineLength = Math.round(total / allCodeLines.length);
+                }
+            }
+            if (!avgLineLength) {
+                const lines = response.split('\n').filter(l => l.length > 0);
+                avgLineLength = lines.length
+                    ? Math.round(lines.reduce((s, l) => s + l.length, 0) / lines.length)
+                    : 80;
+            }
+
             return {
                 lineCount,
                 hasLongLines,
@@ -636,6 +670,7 @@
                 hasCode,
                 isLongContent,
                 hasMultipleCodeBlocks,
+                avgLineLength,
                 complexity: isLongContent || hasMultipleCodeBlocks ? 'high' : hasCode ? 'medium' : 'low'
             };
         }
@@ -908,6 +943,38 @@
             return div.innerHTML;
         }
 
+        /**
+         * Render a visible "empty / error" placeholder so the user always
+         * gets feedback. Previously an empty `content` payload from the
+         * main process silently hid the loading dots and left the window
+         * blank — indistinguishable from "the response window didn't pop up".
+         * Now we paint a yellow banner with the reason so the failure mode
+         * is obvious without opening DevTools.
+         */
+        function renderEmptyState(message) {
+            hideLoadingState();
+            const full = document.getElementById('full-content');
+            const split = document.getElementById('split-layout');
+            if (split) split.classList.add('hidden');
+            if (full) full.classList.remove('hidden');
+            const inner = full ? full.querySelector('.full-content-inner') : null;
+            if (!inner) return;
+            inner.innerHTML = `
+                <div style="
+                    display:flex; flex-direction:column; align-items:center;
+                    justify-content:center; height:100%; gap:12px;
+                    color:#fbbf24; font-size:14px; text-align:center;
+                    padding: 24px;">
+                    <div style="font-size:32px; line-height:1;">⚠️</div>
+                    <div style="font-weight:600;">${escapeHtml(message || '没有收到响应')}</div>
+                    <div style="font-size:12px; color:#9ca3af; max-width:480px;">
+                        LLM 可能还在处理、空响应、或网络异常。<br>
+                        可以再按一次 <code style="background:rgba(0,0,0,0.4);padding:1px 6px;border-radius:3px;">Ctrl+Alt+D</code> 重试。
+                    </div>
+                </div>
+            `;
+        }
+
 
         // Handle window focus
         window.addEventListener('focus', () => {
@@ -1038,8 +1105,8 @@
         })();
     </script>
 
-    <!-- Screenshot queue strip: Ctrl+Shift+S captures pile up here as
-         thumbnails; Ctrl+Shift+D sends them all; Ctrl+Shift+X clears. -->
+    <!-- Screenshot queue strip: Ctrl+Alt+S captures pile up here as
+         thumbnails; Ctrl+Alt+D sends them all; Ctrl+Alt+X clears. -->
     <script>
         (function screenshotQueueStrip() {
             const strip = document.createElement('div');
@@ -1067,7 +1134,7 @@
                 if (hintTimer) clearTimeout(hintTimer);
             }
             function refreshTitle(count, max) {
-                setHint(`截图队列 ${count}/${max} · Ctrl+Shift+D 发送 · Ctrl+Shift+X 清空`, false);
+                setHint(`截图队列 ${count}/${max} · Ctrl+Alt+D 发送 · Ctrl+Alt+X 清空`, false);
             }
             function addThumb(ev) {
                 const { thumb, count, max } = ev || {};
@@ -1103,14 +1170,14 @@
                 setTimeout(() => { thumbs.innerHTML = ''; }, 600);
             });
             if (api && api.onScreenshotQueueFull) api.onScreenshotQueueFull((_, ev) => {
-                setHint(`已达上限 ${ev && ev.max} 张，按 Ctrl+Shift+D 发送`, true);
+                setHint(`已达上限 ${ev && ev.max} 张，按 Ctrl+Alt+D 发送`, true);
             });
             if (api && api.onScreenshotQueueEmpty) api.onScreenshotQueueEmpty(() => {
-                setHint('队列为空：先按 Ctrl+Shift+S 截图', false);
+                setHint('队列为空：先按 Ctrl+Alt+S 截图', false);
                 setTimeout(() => { if (!thumbs.children.length) clearStrip('', false); }, 2000);
             });
             if (api && api.onScreenshotQueueRestored) api.onScreenshotQueueRestored((_, ev) => {
-                setHint(`发送失败，已恢复 ${ev && ev.count} 张截图，可重试 Ctrl+Shift+D`, true);
+                setHint(`发送失败，已恢复 ${ev && ev.count} 张截图，可重试 Ctrl+Alt+D`, true);
             });
         })();
     </script>

@@ -46,7 +46,7 @@ function formatEnvValue(raw) {
   return `"${v.replace(/"/g, '\\"')}"`;
 }
 
-// ── Linux GPU process crash workaround ──
+// ── GPU process crash workaround (Linux only) ──
 // On many Linux setups (Wayland, X11 without GPU drivers, Docker, headless,
 // or systems with broken Mesa/NVIDIA stacks), Chromium's GPU process crashes
 // on startup with:
@@ -56,7 +56,16 @@ function formatEnvValue(raw) {
 //
 // Disabling hardware acceleration and the GPU subprocess forces Chromium to
 // render via the CPU (SwiftShader). OpenCluely's UI is light enough that
-// this is imperceptible, and it eliminates the GPU crash entirely.
+// this is imperceptible on Linux, and it eliminates the GPU crash entirely.
+//
+// Windows intentionally keeps GPU acceleration enabled. Transparent frameless
+// always-on-top overlay windows depend on the GPU compositor to alpha-blend
+// the body background onto the desktop; switching Windows to SwiftShader
+// makes the LLM response / chat windows render as blank (the compositor
+// drops the alpha channel). The Windows GPU crash is instead handled by
+// the renderer-crash recovery in window.manager.js, which auto-recreates
+// the window + replays queued IPC when any renderer dies with
+// `reason: killed, exitCode: 1`.
 if (process.platform === "linux") {
   app.disableHardwareAcceleration();
   app.commandLine.appendSwitch("disable-gpu");
@@ -167,9 +176,9 @@ class ApplicationController {
     this._utteranceDispatchInFlight = false;
     this._utteranceCoalesceMs = 800;
 
-    // Multi-screenshot queue: Ctrl+Shift+S accumulates up to MAX captures
-    // (long problems split across several screenshots), Ctrl+Shift+D sends
-    // them all to the LLM in one request, Ctrl+Shift+X clears the queue.
+    // Multi-screenshot queue: Ctrl+Alt+S accumulates up to MAX captures
+    // (long problems split across several screenshots), Ctrl+Alt+D sends
+    // them all to the LLM in one request, Ctrl+Alt+X clears the queue.
     this.screenshotQueue = [];
     this.SCREENSHOT_QUEUE_MAX = 10;
 
@@ -452,9 +461,19 @@ class ApplicationController {
 
   setupGlobalShortcuts() {
     const shortcuts = {
-      "CommandOrControl+Shift+S": () => this.captureScreenshotOnly(),
-      "CommandOrControl+Shift+D": () => this.sendQueuedScreenshots(),
-      "CommandOrControl+Shift+X": () => this.clearScreenshotQueue(),
+      // Screenshot shortcuts. Ctrl+Shift+S is a popular system-level key
+      // (Snipping Tool, Teams, OneDrive, GitHub Desktop, VS Code's "Save As",
+      // various IME / focus tools) and on Windows `globalShortcut.register`
+      // is "first-wins": if any other app already owns it, the OS hands the
+      // keypress to that app and our handler never fires. The user reported
+      // "sometimes it works, sometimes it doesn't" — that pattern is the
+      // signature of a stolen registration, not a code bug.
+      //
+      // Switched to Ctrl+Alt+ which is virtually never bound by another
+      // app, so the registration reliably succeeds.
+      "CommandOrControl+Alt+S": () => this.captureScreenshotOnly(),
+      "CommandOrControl+Alt+D": () => this.sendQueuedScreenshots(),
+      "CommandOrControl+Alt+X": () => this.clearScreenshotQueue(),
       "CommandOrControl+Shift+V": () => windowManager.toggleVisibility(),
       "CommandOrControl+Shift+I": () => windowManager.toggleInteraction(),
       "CommandOrControl+Shift+C": () => windowManager.switchToWindow("chat"),
@@ -475,23 +494,49 @@ class ApplicationController {
         const results = windowManager.testAlwaysOnTopForAllWindows();
         logger.info('Always-on-top test triggered via shortcut', results);
       },
-      // Context-sensitive shortcuts based on interaction mode
-      "CommandOrControl+Up": () => this.handleUpArrow(),
-      "CommandOrControl+Down": () => this.handleDownArrow(),
-      "CommandOrControl+Left": () => this.handleLeftArrow(),
-      "CommandOrControl+Right": () => this.handleRightArrow(),
+      // Ctrl + arrow keys — dedicated window-move shortcuts. The user
+      // asked for ONE consistent chord: arrow keys always move the
+      // overlay windows (main + chat + llmResponse) together, regardless
+      // of interaction mode. Previously Alt+arrow also moved them and
+      // Ctrl+arrow only did so in non-interactive mode (otherwise it
+      // navigated skills), which made the position jump unpredictably
+      // depending on whether Alt+A had been pressed recently.
+      "CommandOrControl+Up": () => windowManager.moveBoundWindows(0, -20),
+      "CommandOrControl+Down": () => windowManager.moveBoundWindows(0, 20),
+      "CommandOrControl+Left": () => windowManager.moveBoundWindows(-20, 0),
+      "CommandOrControl+Right": () => windowManager.moveBoundWindows(20, 0),
     };
 
+    // Two-pass register: try every accelerator, but if one is owned by
+    // another app, do NOT abort — that would leave the user with no
+    // screenshot hotkey at all. We log the failure and keep registering the
+    // rest, and emit a single user-visible warning summarizing which keys
+    // are missing so the README / onboarding can pick them up.
+    const failures = [];
     Object.entries(shortcuts).forEach(([accelerator, handler]) => {
-      const success = globalShortcut.register(accelerator, handler);
-      // INFO level: a failed registration silently redirects the keypress
-      // to the focused window (e.g. Chromium zoom), which looks like a bug.
+      let success = false;
+      try {
+        success = globalShortcut.register(accelerator, handler);
+      } catch (err) {
+        logger.error("Global shortcut registration threw", { accelerator, error: err.message });
+      }
       if (success) {
         logger.info("Global shortcut registered", { accelerator });
       } else {
         logger.error("Global shortcut FAILED to register (another app may own it)", { accelerator });
+        failures.push(accelerator);
       }
     });
+    if (failures.length > 0) {
+      this._shortcutRegistrationFailures = failures;
+      // Best-effort user-visible warning; renderer logs are silent if the
+      // response window isn't open yet, so also write to stdout.
+      try {
+        windowManager.broadcastToAllWindows && windowManager.broadcastToAllWindows("shortcut-registration-warning", { failures });
+      } catch (_) { /* ignore */ }
+    } else {
+      this._shortcutRegistrationFailures = [];
+    }
   }
 
   setupServiceEventHandlers() {
@@ -1067,47 +1112,21 @@ class ApplicationController {
   }
 
   handleUpArrow() {
-    const isInteractive = windowManager.getWindowStats().isInteractive;
-
-    if (isInteractive) {
-      // Interactive mode: Navigate to previous skill
-      this.navigateSkill(-1);
-    } else {
-      // Non-interactive mode: Move window up
-      windowManager.moveBoundWindows(0, -20);
-    }
+    // Ctrl+Up — window-move only (skill navigation was removed because it
+    // made the position jump unpredictably when Alt+A was toggled).
+    windowManager.moveBoundWindows(0, -20);
   }
 
   handleDownArrow() {
-    const isInteractive = windowManager.getWindowStats().isInteractive;
-
-    if (isInteractive) {
-      // Interactive mode: Navigate to next skill
-      this.navigateSkill(1);
-    } else {
-      // Non-interactive mode: Move window down
-      windowManager.moveBoundWindows(0, 20);
-    }
+    windowManager.moveBoundWindows(0, 20);
   }
 
   handleLeftArrow() {
-    const isInteractive = windowManager.getWindowStats().isInteractive;
-
-    if (!isInteractive) {
-      // Non-interactive mode: Move window left
-      windowManager.moveBoundWindows(-20, 0);
-    }
-    // Interactive mode: Left arrow does nothing
+    windowManager.moveBoundWindows(-20, 0);
   }
 
   handleRightArrow() {
-    const isInteractive = windowManager.getWindowStats().isInteractive;
-
-    if (!isInteractive) {
-      // Non-interactive mode: Move window right
-      windowManager.moveBoundWindows(20, 0);
-    }
-    // Interactive mode: Right arrow does nothing
+    windowManager.moveBoundWindows(20, 0);
   }
 
   navigateSkill(direction) {
@@ -1149,7 +1168,7 @@ class ApplicationController {
   }
 
   /**
-   * Ctrl+Shift+S — capture the screen and ADD it to the screenshot queue
+   * Ctrl+Alt+S — capture the screen and ADD it to the screenshot queue
    * (up to SCREENSHOT_QUEUE_MAX). Nothing is sent to the LLM yet; thumbnails
    * are broadcast so the response window can show the user what's queued.
    *
@@ -1196,9 +1215,18 @@ class ApplicationController {
   async _captureOneScreenshot() {
     const hidden = windowManager.hideOverlaysForCapture();
     try {
-      // Give Chromium a tick to actually paint the windows out of the
-      // compositor before getSources reads the desktop frame.
-      await new Promise((r) => setTimeout(r, 80));
+      // Give Chromium enough time to actually paint the windows out of the
+      // compositor before getSources reads the desktop frame. On Windows the
+      // compositor frequently needs 150-300ms to commit a hide; the previous
+      // 80ms was tight enough that overlays (chat/llm-response strip) often
+      // leaked into the capture, looking like the screenshot "doesn't work".
+      // We also kick each renderer's webContents into invalidating so the
+      // compositor schedules a fresh frame immediately instead of waiting for
+      // the next vsync.
+      if (windowManager && typeof windowManager.invalidateOverlaysForCapture === 'function') {
+        windowManager.invalidateOverlaysForCapture();
+      }
+      await new Promise((r) => setTimeout(r, 220));
       const capture = await captureService.captureAndProcess();
       if (!capture.imageBuffer || !capture.imageBuffer.length) {
         this.broadcastOCRError("截图失败：未能获取屏幕图像");
@@ -1235,7 +1263,7 @@ class ApplicationController {
     }
   }
 
-  /** Ctrl+Shift+X — discard all queued screenshots. */
+  /** Ctrl+Alt+X — discard all queued screenshots. */
   clearScreenshotQueue() {
     if (this.screenshotQueue.length === 0) return;
     const count = this.screenshotQueue.length;
@@ -1245,7 +1273,7 @@ class ApplicationController {
   }
 
   /**
-   * Ctrl+Shift+D — send ALL queued screenshots to the LLM in one request.
+   * Ctrl+Alt+D — send ALL queued screenshots to the LLM in one request.
    * Long problems that don't fit in a single capture get stitched together
    * by the model. On failure the captures are put back in the queue so a
    * network blip doesn't lose them.
@@ -1312,7 +1340,7 @@ class ApplicationController {
         duration: Date.now() - startTime
       });
     } catch (error) {
-      // Put the captures back so the user can just press Ctrl+Shift+D again
+      // Put the captures back so the user can just press Ctrl+Alt+D again
       // after fixing whatever went wrong (network, quota, …).
       this.screenshotQueue = items.concat(this.screenshotQueue).slice(0, this.SCREENSHOT_QUEUE_MAX);
       windowManager.broadcastToAllWindows("screenshot-queue-restored", {
@@ -1323,7 +1351,10 @@ class ApplicationController {
         imageCount: items.length,
         duration: Date.now() - startTime
       });
-      windowManager.hideLLMResponse();
+      // DO NOT hide the window here — the renderer's ocr-error handler now
+      // paints a clear error message in place so the user can see WHAT went
+      // wrong (network, quota, empty answer, etc.) instead of staring at
+      // an empty screen wondering "did the window not pop up?".
       this.broadcastOCRError(error.message);
       sessionManager.addConversationEvent({
         role: 'system',

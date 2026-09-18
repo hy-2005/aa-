@@ -38,6 +38,14 @@ class WindowManager {
       main: {
         width: 520,
         height: 35,
+        minWidth: 240,
+        minHeight: 70,
+        // Allow the main bar to grow up to 1100 so Ctrl+] actually has
+        // somewhere to go. Previously max=520 made the user hit the cap
+        // after 7 presses and the resize "stopped working" while chat /
+        // llmResponse kept growing — looked like "not resizing together".
+        maxWidth: 1100,
+        maxHeight: 600,
         useContentSize: true,
         file: 'index.html',
         title: 'OpenCluely'
@@ -45,12 +53,20 @@ class WindowManager {
       chat: {
         width: 500,
         height: 700,
+        minWidth: 360,
+        minHeight: 320,
+        maxWidth: 900,
+        maxHeight: 1000,
         file: 'chat.html',
         title: 'Chat'
       },
       llmResponse: {
-        width: 960,
-        height: 520,
+        width: 1280,
+        height: 620,
+        minWidth: 800,
+        minHeight: 320,
+        maxWidth: 1920,
+        maxHeight: 1200,
         file: 'llm-response.html',
         title: 'AI Response',
         alwaysOnTop: true
@@ -239,14 +255,23 @@ class WindowManager {
     }
     const window = await this.createWindow('llmResponse');
     this.windows.set('llmResponse', window);
-    
+
     // Add console message listener to see renderer logs in main process
     window.webContents.on('console-message', (event, level, message, line, sourceId) => {
       if (message.includes('LLM-RESPONSE')) {
         logger.info(`[RENDERER] ${message}`);
       }
     });
-    
+
+    // After the renderer is fully ready (post-recovery or first launch),
+    // replay any IPC messages that arrived while the window was dead.
+    // showLLMResponse / showLLMLoading queue them into _pendingLLMIpc;
+    // without this drain the user would see an empty window after a crash
+    // even though the LLM answer was actually delivered moments earlier.
+    window.webContents.once('did-finish-load', () => {
+      try { this.flushPendingLLMIpc(); } catch (_) { /* ignore */ }
+    });
+
     window.hide();
     return window;
   }
@@ -354,7 +379,7 @@ class WindowManager {
   resizable: true,
     // Keep the original max width as cap; allow small min width so it can collapse to one icon
     minWidth: 60,
-    maxWidth: this.windowConfigs.main.width,
+    maxWidth: this.windowConfigs.main.maxWidth,
         minimizable: false,
         maximizable: false,
         closable: false,
@@ -459,6 +484,45 @@ class WindowManager {
         exitCode: details.exitCode,
         url: window.webContents.getURL()
       });
+      // Recreate the window automatically. Without this the user takes a
+      // screenshot, the LLM renderer crashes mid-response, and every
+      // subsequent "Ctrl+Alt+D" silently no-ops because the window we
+      // try to `send` / `show` was already destroyed. The user reports
+      // "AI response doesn't show" — it's actually "AI response window
+      // died and nobody noticed, so the next show() goes to /dev/null".
+      //
+      // Only auto-recreate the overlay windows (main / chat / llmResponse).
+      // Settings / onboarding are user-initiated and have their own recovery
+      // paths; recreating them mid-onboarding would lose state.
+      const recoverable = ['main', 'chat', 'llmResponse'].includes(type);
+      if (!recoverable) return;
+      const existing = this.windows.get(type);
+      if (existing && existing !== window) return; // already replaced
+      // Drop the dead handle so createWindow() doesn't return the cached one.
+      this.windows.delete(type);
+      // Recreate off the current call stack so we don't interfere with
+      // whatever caused the crash (e.g. a still-firing IPC handler).
+      setImmediate(async () => {
+        try {
+          if (type === 'main') {
+            await this.createMainWindow({ autoShow: false });
+            await this.showMainWindow();
+          } else if (type === 'chat') {
+            await this.createChatWindow();
+          } else if (type === 'llmResponse') {
+            await this.createLLMResponseWindow();
+          }
+          // Re-apply current interaction mode so the new window isn't
+          // stuck in the wrong click-through state.
+          if (this.isInteractive) {
+            const fresh = this.windows.get(type);
+            if (fresh && !fresh.isDestroyed()) fresh.setIgnoreMouseEvents(false);
+          }
+          logger.info('Window recovered after renderer crash', { windowType: type });
+        } catch (recoverErr) {
+          logger.error('Window recovery failed', { windowType: type, error: recoverErr.message });
+        }
+      });
     });
     window.webContents.on('unresponsive', () => {
       logger.error('Renderer unresponsive', { windowType: type });
@@ -527,13 +591,17 @@ class WindowManager {
 
         // Intercept user-initiated resizes to lock height and allow width changes only
         window.on('will-resize', (event, newBounds) => {
+          // Skip when the resize was triggered by our own Ctrl+[ / Ctrl+]
+          // shortcut — that path already knows the target dimensions and
+          // wants them applied verbatim, not collapsed to current height.
+          if (this._resizingByShortcut) return;
           try {
             // Keep current content height; only apply the new width
             const [_, currentContentHeight] = window.getContentSize();
             event.preventDefault();
             // Enforce width within min/max bounds
             const minW = 60;
-            const maxW = this.windowConfigs.main.width;
+            const maxW = this.windowConfigs.main.maxWidth || this.windowConfigs.main.width;
             const desiredW = Math.max(minW, Math.min(maxW, Math.round(newBounds.width || minW)));
             window.setContentSize(desiredW, Math.max(1, currentContentHeight));
           } catch (e) {
@@ -542,18 +610,19 @@ class WindowManager {
               const [__w, currentWindowHeight] = window.getSize();
               event.preventDefault();
               const minW = 60;
-              const maxW = this.windowConfigs.main.width;
+              const maxW = this.windowConfigs.main.maxWidth || this.windowConfigs.main.width;
               const desiredW = Math.max(minW, Math.min(maxW, Math.round(newBounds.width || minW)));
               window.setSize(desiredW, Math.max(1, currentWindowHeight));
             } catch { /* noop */ }
           }
         });
 
-        // When resized (by user or programmatically), keep bound windows aligned at top
+        // When resized (by user or programmatically), keep LLM just under main
+        // — NOT the old "snap both to top-center" positionBoundWindows, which
+        // was jumping main back to a fixed location every time the user
+        // resized anything. We only nudge LLM down so it stays glued to main.
         window.on('resize', () => {
-          if (this.bindWindows) {
-            this.positionBoundWindows();
-          }
+          this.positionLLMRelativeToMain();
         });
       } catch { /* ignore */ }
     }
@@ -765,42 +834,42 @@ class WindowManager {
   positionBoundWindows() {
     const mainWindow = this.windows.get('main');
     const llmWindow = this.windows.get('llmResponse');
-    
+
     if (!mainWindow || !llmWindow) return;
-    
+
     const display = this.currentDisplay || screen.getPrimaryDisplay();
     const { x: displayX, y: displayY, width: screenWidth, height: screenHeight } = display.workArea;
-    
+
     const [mainWidth, mainHeight] = mainWindow.getSize();
     const [llmWidth, llmHeight] = llmWindow.getSize();
-    
+
     // Always position at the top of the screen with small margin
     const topMargin = 20;
     const startY = displayY + topMargin;
-    
+
     // Use the wider window for horizontal centering
     const maxWidth = Math.max(mainWidth, llmWidth);
-    
+
     // Center horizontally on the display
     const xPosition = displayX + Math.round((screenWidth - maxWidth) / 2);
-    
+
     // Ensure windows don't go outside screen bounds horizontally
     const adjustedMainX = Math.max(displayX, Math.min(displayX + screenWidth - mainWidth, xPosition));
     const adjustedLlmX = Math.max(displayX, Math.min(displayX + screenWidth - llmWidth, xPosition));
-    
+
     // Position main window (top)
     const mainX = adjustedMainX;
     const mainY = startY;
     mainWindow.setPosition(mainX, mainY);
-    
+
     // Position LLM response window below with gap
     const llmX = adjustedLlmX;
     const llmY = startY + mainHeight + this.windowGap;
     llmWindow.setPosition(llmX, llmY);
-    
+
     // Update stored position (use main window position as reference)
     this.boundWindowsPosition = { x: adjustedMainX, y: startY };
-    
+
     logger.debug('Positioned bound windows at top (column layout)', {
       mainPosition: `${mainX},${mainY}`,
       llmPosition: `${llmX},${llmY}`,
@@ -810,52 +879,97 @@ class WindowManager {
     });
   }
 
-  // New method to move bound windows (column layout) - Maintains top positioning preference
+  /**
+   * Slide the LLM window so it sits directly under the main router window
+   * with the configured gap, keeping the SAME x as main. This is what the
+   * user actually wants: "AI response should appear below the router I'm
+   * currently using", not "snap to top-center of the screen on every
+   * event". Also used as the resize handler on main — keeps the two glued
+   * together without yanking main back to a fixed location.
+   *
+   * No-op if main or llmResponse is missing/destroyed, or if LLM is
+   * currently the only window being shown at top-center (initial state).
+   */
+  positionLLMRelativeToMain() {
+    const mainWin = this.windows.get('main');
+    const llmWin = this.windows.get('llmResponse');
+    if (!mainWin || mainWin.isDestroyed()) return;
+    if (!llmWin || llmWin.isDestroyed()) return;
+
+    const [mainX, mainY] = mainWin.getPosition();
+    const [mainW, mainH] = mainWin.getSize();
+    const [llmW, llmH] = llmWin.getSize();
+
+    const display = this.currentDisplay || screen.getPrimaryDisplay();
+    const { x: displayX, y: displayY, width: screenW, height: screenH } = display.workArea;
+    const topMargin = 20;
+
+    // Same X as main, Y = mainY + mainH + gap. Clamp to screen so the LLM
+    // never ends up half off-screen when main is dragged into a corner.
+    const desiredX = mainX;
+    const desiredY = mainY + mainH + this.windowGap;
+    const x = Math.max(displayX, Math.min(displayX + screenW - llmW, desiredX));
+    const y = Math.max(displayY + topMargin, Math.min(displayY + screenH - llmH, desiredY));
+
+    llmWin.setPosition(x, y);
+
+    logger.debug('LLM window positioned relative to main', {
+      main: { x: mainX, y: mainY, w: mainW, h: mainH },
+      llm: { x, y, w: llmW, h: llmH }
+    });
+  }
+
+  // Move all overlay windows together (main + chat + llmResponse) by a delta,
+// with screen bounds clamping. Works regardless of bindWindows state so
+// Alt+arrow / Ctrl+arrow always respond, even when window binding is off.
   moveBoundWindows(deltaX, deltaY) {
-    if (!this.bindWindows) return;
-    
     const mainWindow = this.windows.get('main');
-    const llmWindow = this.windows.get('llmResponse');
-    
-    if (!mainWindow || !llmWindow) return;
-    
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+
     const display = this.currentDisplay || screen.getPrimaryDisplay();
     const { x: displayX, y: displayY, width: screenWidth, height: screenHeight } = display.workArea;
-    
-    // Get current positions and sizes
-    const [mainX, mainY] = mainWindow.getPosition();
-    const [llmX, llmY] = llmWindow.getPosition();
-    const [mainWidth, mainHeight] = mainWindow.getSize();
-    const [llmWidth, llmHeight] = llmWindow.getSize();
-    
-    // Calculate total height for bounds checking
-    const totalHeight = mainHeight + this.windowGap + llmHeight;
     const topMargin = 20;
-    const minY = displayY + topMargin;
-    
-    // Calculate new positions with bounds checking
+
+    // Anchor on main window for bounds calculations
+    const [mainX, mainY] = mainWindow.getPosition();
+    const [mainWidth, mainHeight] = mainWindow.getSize();
+
+    // New main position clamped to screen
     const newMainX = Math.max(displayX, Math.min(displayX + screenWidth - mainWidth, mainX + deltaX));
-    // Ensure we don't go above the top margin or below screen bounds
-    const newMainY = Math.max(minY, Math.min(displayY + screenHeight - totalHeight, mainY + deltaY));
-    
-    // LLM window follows the same horizontal movement but maintains vertical relationship
-    const newLlmX = Math.max(displayX, Math.min(displayX + screenWidth - llmWidth, llmX + deltaX));
-    const newLlmY = newMainY + mainHeight + this.windowGap;
-    
-    // Move both windows
+    const newMainY = Math.max(displayY + topMargin, Math.min(displayY + screenHeight - mainHeight, mainY + deltaY));
+
+    const dxApplied = newMainX - mainX;
+    const dyApplied = newMainY - mainY;
+
     mainWindow.setPosition(newMainX, newMainY);
-    llmWindow.setPosition(newLlmX, newLlmY);
-    
-    // Update stored position (use main window as reference)
+
+    // Move chat + llmResponse by the same applied delta so they stay in
+    // lockstep with main. If bindWindows is on we re-stack (vertical
+    // column); otherwise we just translate by the same delta.
+    ['chat', 'llmResponse'].forEach((type) => {
+      const w = this.windows.get(type);
+      if (!w || w.isDestroyed()) return;
+      const [x, y] = w.getPosition();
+      const [width, height] = w.getSize();
+      let nx = Math.max(displayX, Math.min(displayX + screenWidth - width, x + dxApplied));
+      let ny = Math.max(displayY, Math.min(displayY + screenHeight - height, y + dyApplied));
+      if (this.bindWindows && type === 'llmResponse') {
+        // Column layout: pin llmResponse below main with the gap
+        ny = newMainY + mainHeight + this.windowGap;
+        // Clamp horizontal again in case main moved beyond screen
+        nx = Math.max(displayX, Math.min(displayX + screenWidth - width, nx));
+      }
+      w.setPosition(nx, ny);
+    });
+
     this.boundWindowsPosition.x = newMainX;
     this.boundWindowsPosition.y = newMainY;
-    
-    logger.debug('Moved bound windows (maintaining top preference)', {
+
+    logger.debug('Moved overlay windows', {
       delta: `${deltaX},${deltaY}`,
+      applied: `${dxApplied},${dyApplied}`,
       newMainPosition: `${newMainX},${newMainY}`,
-      newLlmPosition: `${newLlmX},${newLlmY}`,
-      topMargin: topMargin,
-      totalHeight: totalHeight
+      boundWindows: this.bindWindows
     });
   }
 
@@ -1240,7 +1354,7 @@ class WindowManager {
   showLLMResponse(content, metadata = {}) {
     logger.debug('showLLMResponse called', {
       isScreenBeingShared: this.isScreenBeingShared,
-      contentLength: content.length,
+      contentLength: content ? content.length : 0,
       skill: metadata.skill
     });
 
@@ -1249,35 +1363,48 @@ class WindowManager {
       return;
     }
 
-    const llmWindow = this.windows.get('llmResponse');
-    if (!llmWindow) {
-      logger.error('LLM response window not available');
-      return;
-    }
-
-    // Ensure window is not destroyed before use
-    if (llmWindow.isDestroyed()) {
-      logger.error('LLM response window is destroyed');
+    let llmWindow = this.windows.get('llmResponse');
+    if (!llmWindow || llmWindow.isDestroyed()) {
+      // The render-process-gone handler auto-recreates the window in the
+      // background. If it hasn't finished by the time the LLM answer
+      // arrives (or it never fires because the GPU was the culprit), the
+      // IPC send below would silently no-op. Bring the window to front
+      // first so recovery has a chance to start, then check again before
+      // sending the IPC. We can't synchronously await the recreate here
+      // without blocking the LLM response callback, so we queue the send
+      // and replay it once the window is alive.
+      logger.warn('LLM response window missing/destroyed — queueing replay', {
+        hasHandle: !!llmWindow,
+        destroyed: !!(llmWindow && llmWindow.isDestroyed())
+      });
+      this._pendingLLMIpc = this._pendingLLMIpc || [];
+      this._pendingLLMIpc.push({ channel: 'display-llm-response', payload: { content, metadata, timestamp: new Date().toISOString() } });
+      this.bringLLMWindowToFront('response');
       return;
     }
 
     logger.debug('Sending display-llm-response event to window');
-    llmWindow.webContents.send('display-llm-response', {
-      content,
-      metadata,
-      timestamp: new Date().toISOString()
-    });
-    
-    logger.debug('Showing and focusing LLM window');
-    this.showOnCurrentDesktop(llmWindow);
-    
-    // Position bound windows when LLM response is shown
-    if (this.bindWindows) {
-      this.positionBoundWindows();
+    try {
+      llmWindow.webContents.send('display-llm-response', {
+        content,
+        metadata,
+        timestamp: new Date().toISOString()
+      });
+    } catch (e) {
+      logger.warn('display-llm-response send failed; queueing replay', { err: e.message });
+      this._pendingLLMIpc = this._pendingLLMIpc || [];
+      this._pendingLLMIpc.push({ channel: 'display-llm-response', payload: { content, metadata, timestamp: new Date().toISOString() } });
     }
-        
+
+    this.bringLLMWindowToFront('response');
+
+    // Don't call `positionBoundWindows` here anymore — it yanks the main
+    // router bar back to top-center on every screenshot/send, which is
+    // exactly the "every shortcut jumps the window" complaint.
+    // `bringLLMWindowToFront` already positions the LLM relative to main.
+
     logger.info('LLM response displayed', {
-      contentLength: content.length,
+      contentLength: content ? content.length : 0,
       skill: metadata.skill,
       windowVisible: llmWindow.isVisible(),
       boundWindows: this.bindWindows
@@ -1291,20 +1418,59 @@ class WindowManager {
     }
 
     const llmWindow = this.windows.get('llmResponse');
-    if (llmWindow) {
-      logger.debug('Showing LLM loading state');
-      llmWindow.webContents.send('show-loading');
-      this.showOnCurrentDesktop(llmWindow);
-      
-      // Position bound windows when LLM loading is shown
-      if (this.bindWindows) {
-        this.positionBoundWindows();
-      }
-      
-      logger.debug('LLM loading window shown');
-    } else {
-      logger.error('LLM window not available for loading state');
+    if (!llmWindow || llmWindow.isDestroyed()) {
+      // Same defense-in-depth as showLLMResponse: queue the IPC and let
+      // bringLLMWindowToFront trigger recovery + replay.
+      logger.warn('LLM window missing/destroyed for loading state — queueing replay', {
+        hasHandle: !!llmWindow,
+        destroyed: !!(llmWindow && llmWindow.isDestroyed())
+      });
+      this._pendingLLMIpc = this._pendingLLMIpc || [];
+      this._pendingLLMIpc.push({ channel: 'show-loading', payload: null });
+      this.bringLLMWindowToFront('loading');
+      return;
     }
+    try {
+      llmWindow.webContents.send('show-loading');
+    } catch (e) {
+      logger.warn('show-loading send failed; queueing replay', { err: e.message });
+      this._pendingLLMIpc = this._pendingLLMIpc || [];
+      this._pendingLLMIpc.push({ channel: 'show-loading', payload: null });
+    }
+    this.bringLLMWindowToFront('loading');
+    // `bringLLMWindowToFront` already slides LLM under main. No extra
+    // positionBoundWindows() call — that was the "always jump to center"
+    // bug the user reported.
+  }
+
+  /**
+   * Drain any queued LLM IPC messages onto the freshly-recreated window.
+   * Called from `did-finish-load` after the render-process-gone handler
+   * rebuilds llmResponse. Without this, the "show loading" / "display
+   * response" signals that arrived while the window was dead would be
+   * permanently lost and the user would see an empty window after
+   * recovery.
+   */
+  flushPendingLLMIpc() {
+    const queue = this._pendingLLMIpc || [];
+    if (!queue.length) return;
+    const llmWindow = this.windows.get('llmResponse');
+    if (!llmWindow || llmWindow.isDestroyed() || !llmWindow.webContents) {
+      return; // still not ready, try again next tick
+    }
+    this._pendingLLMIpc = [];
+    logger.info('Replaying queued LLM IPC after window recovery', { count: queue.length });
+    queue.forEach(({ channel, payload }) => {
+      try {
+        if (payload == null) {
+          llmWindow.webContents.send(channel);
+        } else {
+          llmWindow.webContents.send(channel, payload);
+        }
+      } catch (e) {
+        logger.warn('Failed to replay queued LLM IPC', { channel, err: e.message });
+      }
+    });
   }
 
   hideLLMResponse() {
@@ -1357,6 +1523,26 @@ class WindowManager {
     return hidden;
   }
 
+  /**
+   * Force every renderer to schedule a fresh paint frame immediately, so
+   * the compositor commits the hide before desktopCapturer.getSources()
+   * reads the desktop. Without this, on Windows the capture often arrives
+   * a frame or two before Chromium has actually repainted without the
+   * overlay, so the screenshot includes our own chat/llm-response chrome.
+   */
+  invalidateOverlaysForCapture() {
+    ['main', 'chat', 'llmResponse'].forEach((type) => {
+      const win = this.windows.get(type);
+      if (win && !win.isDestroyed()) {
+        try {
+          if (win.webContents && !win.webContents.isDestroyed()) {
+            win.webContents.invalidate?.();
+          }
+        } catch (_) { /* ignore */ }
+      }
+    });
+  }
+
   restoreOverlaysAfterCapture(hiddenTypes) {
     if (!Array.isArray(hiddenTypes)) return;
     for (const type of hiddenTypes) {
@@ -1376,23 +1562,98 @@ class WindowManager {
    * thin strip. The shortcuts now resize BOTH width and height, and the
    * renderer is told to skip the next auto-shrink so the resize sticks.
    */
+  stepOverlayWindowSize(delta) {
+    // Ctrl+[ / Ctrl+] — resize ALL stealth overlay windows together (main
+    // bar, chat, llm response). Each window has its own min/max bounds so
+    // they each clamp independently, but the delta is shared so pressing
+    // Ctrl+] makes the whole UI bigger in lockstep. Each window also gets
+    // the "I was resized by a shortcut" IPC so the renderer skips its next
+    // auto-shrink tick (otherwise main's setContentSize gets undone 16ms
+    // later by the .command-tab measure).
+    //
+    // The window size itself isn't the whole story — the content INSIDE
+    // also has to scale, otherwise pressing Ctrl+] just adds whitespace
+    // around 11px-tall buttons. We apply `setZoomFactor = currentSize /
+    // baselineSize` so the icons, text, padding, code blocks, and layout
+    // all grow proportionally with the window. The factor is clamped to
+    // [MIN_ZOOM, MAX_ZOOM] so the text never becomes unreadable at either
+    // extreme.
+    const targets = ['main', 'chat', 'llmResponse'];
+    const MIN_ZOOM = 0.7;
+    const MAX_ZOOM = 2.0;
+
+    // Set the auto-shrink guard BEFORE the resize, not after. The renderer
+    // fires a resize event synchronously after setContentSize, and if the
+    // IPC hasn't reached it yet it can call resize-window to undo our
+    // height change before `_suspendAutoShrink` is set.
+    this._suspendAutoShrink = Date.now() + 1000;
+
+    // Mark the resize so main's `will-resize` handler knows to let the
+    // height change through (it normally locks height to currentContentHeight
+    // for user drag-resizes). Without this flag the user would press Ctrl+]
+    // and main would silently stay 35px tall.
+    this._resizingByShortcut = true;
+    let anyResized = false;
+    try {
+      for (const type of targets) {
+        const win = this.windows.get(type);
+        if (!win || win.isDestroyed()) continue;
+        const cfg = this.windowConfigs?.[type] || {};
+        const minW = cfg.minWidth || 200;
+        const minH = cfg.minHeight || 70;
+        const maxW = cfg.maxWidth || cfg.width || 1920;
+        const maxH = cfg.maxHeight || cfg.height || 1200;
+        const baselineW = cfg.width || 800;
+        const baselineH = cfg.height || 600;
+        const [w, h] = win.getContentSize();
+        const newW = Math.max(minW, Math.min(maxW, Math.round(w + delta)));
+        const newH = Math.max(minH, Math.min(maxH, Math.round(h + delta)));
+        if (newW === w && newH === h) continue;
+        win.setContentSize(newW, newH);
+        // Scale the renderer content by the same ratio so the icons,
+        // padding, and text inside grow / shrink in lockstep with the
+        // window frame. Width is the anchor; height follows the same
+        // factor so the proportions stay correct.
+        const rawFactor = newW / baselineW;
+        const factor = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, rawFactor));
+        try {
+          win.webContents.setZoomFactor(factor);
+        } catch (_) { /* ignore */ }
+        try {
+          win.webContents.send('window-resized-by-shortcut', {
+            width: newW,
+            height: newH,
+            zoom: factor
+          });
+        } catch (_) { /* ignore */ }
+        logger.info('Overlay window resized via shortcut', {
+          type,
+          from: { w, h },
+          to: { w: newW, h: newH },
+          zoom: factor
+        });
+        anyResized = true;
+      }
+    } finally {
+      // Reset shortly after the synchronous setContentSize calls return.
+      // Will-resize (if it fires at all for programmatic resize) has already
+      // been observed by then.
+      setTimeout(() => { this._resizingByShortcut = false; }, 50);
+    }
+    if (anyResized) {
+      // Slide LLM directly under main so they stay glued together — NOT
+      // `positionBoundWindows`, which used to snap BOTH windows back to
+      // top-center of the display on every shortcut press.
+      this.positionLLMRelativeToMain();
+    }
+  }
+
+  /**
+   * Backward-compat shim — some older call sites still pass to the old name.
+   * New code should use `stepOverlayWindowSize`.
+   */
   stepMainWindowSize(delta) {
-    const win = this.windows.get('main');
-    if (!win || win.isDestroyed()) return;
-    const [w, h] = win.getContentSize();
-    const minW = 240;
-    const minH = 70;
-    const maxW = this.windowConfigs?.main?.width || 520;
-    const maxH = 600;
-    const newW = Math.max(minW, Math.min(maxW, Math.round(w + delta)));
-    const newH = Math.max(minH, Math.min(maxH, Math.round(h + delta)));
-    if (newW === w && newH === h) return;
-    // Suspend auto-shrink for one tick so the renderer doesn't snap height
-    // back down to the .command-tab height right after we change it.
-    this._suspendAutoShrink = Date.now() + 500;
-    win.setContentSize(newW, newH);
-    win.webContents.send('window-resized-by-shortcut', { width: newW, height: newH });
-    logger.info('Main window resized via shortcut', { from: { w, h }, to: { w: newW, h: newH } });
+    return this.stepOverlayWindowSize(delta);
   }
 
   /**
@@ -1414,15 +1675,104 @@ class WindowManager {
    * Show the LLM response window in "screenshot queue" mode — the window
    * renders queued-shot thumbnails from broadcast events, so all this does
    * is make sure it's visible. New windows default to full opacity.
+   *
+   * The previous version just called `showOnCurrentDesktop` and trusted the
+   * window to re-show at its last position, which left three failure modes
+   * that all looked like "screenshot didn't work":
+   *
+   *   1. The window had been moved offscreen / behind another window and
+   *      `show()` re-emerged it there. `centerWindow` puts it back at top-
+   *      center where users actually look.
+   *   2. The user had been mashing Alt+- to make overlays transparent; the
+   *      cap of `Math.max(this.overlayOpacity, 0.6)` was supposed to guard
+   *      against this but if the previous overlayOpacity was 0 the window
+   *      ended up at 0.6 — visible, but easy to overlook if the user
+   *      expected full opacity. We now force full opacity for this one
+   *      window so the queue is impossible to miss.
+   *   3. `restoreOverlaysAfterCapture` was restoring `main`/`chat`
+   *      *before* `showScreenshotQueue` ran in some racing captures, so the
+   *      user saw their old chat window but no queue. The order in
+   *      `_captureOneScreenshot` already handles this, but we also
+   *      `moveTop()` here as belt-and-suspenders.
    */
   showScreenshotQueue() {
     const win = this.windows.get('llmResponse');
-    if (win && !win.isDestroyed()) {
-      this.showOnCurrentDesktop(win);
-      win.moveTop();
-      win.focus();
-      win.setOpacity(Math.max(this.overlayOpacity, 0.6));
+    if (!win || win.isDestroyed()) return;
+    this.bringLLMWindowToFront('queue');
+    logger.info('Screenshot queue shown', {
+      visible: win.isVisible(),
+      bounds: win.getBounds ? win.getBounds() : null
+    });
+  }
+
+  /**
+   * Single source of truth for "make the LLM response window visible".
+   * Three call sites used to duplicate this logic (showLLMResponse /
+   * showLLMLoading / showScreenshotQueue) and each one inherited the same
+   * failure modes: an offscreen position from a previous session, a
+   * zero-opacity overlay from a previous Alt+- spree, or a competing focus
+   * owner. Now all three go through here and the window pops up reliably
+   * at top-center, full opacity, on top.
+   */
+  bringLLMWindowToFront(reason = 'response') {
+    const win = this.windows.get('llmResponse');
+    if (!win || win.isDestroyed()) {
+      // Belt-and-suspenders: the render-process-gone handler should have
+      // already recreated the window. If we still see no live handle, try
+      // to recreate it synchronously here so the user doesn't get a silent
+      // no-op (the previous failure mode was: user presses Ctrl+Alt+D,
+      // the LLM window died earlier, nothing pops up, user blames the
+      // app for "broken window display").
+      logger.warn('bringLLMWindowToFront: no llmResponse window, attempting recovery', { reason });
+      try {
+        // createLLMResponseWindow is async — fire-and-forget here; the
+        // caller (showLLMResponse / showLLMLoading) will have already
+        // queued the IPC message that will be delivered once the window
+        // finishes loading. Don't block the caller waiting for it.
+        this.createLLMResponseWindow().then(() => {
+          const fresh = this.windows.get('llmResponse');
+          if (fresh && !fresh.isDestroyed()) {
+            // Apply current global overlayOpacity so the recovered window
+            // matches the user's Alt+= / Alt+- setting instead of jumping
+            // back to fully opaque while the other overlays stay dim.
+            try { fresh.setOpacity(this.overlayOpacity); } catch (_) { /* ignore */ }
+            try { this.positionLLMRelativeToMain(); } catch (_) { /* ignore */ }
+            try { this.showOnCurrentDesktop(fresh); } catch (_) { /* ignore */ }
+            logger.info('LLM window recovered on-demand', { reason });
+          }
+        }).catch((err) => {
+          logger.error('LLM window recovery failed', { reason, error: err.message });
+        });
+      } catch (err) {
+        logger.error('Could not schedule LLM window recovery', { reason, error: err.message });
+      }
+      return;
     }
+    logger.info('bringLLMWindowToFront:start', { reason });
+    // Sync the AI response / screenshot-queue window's opacity to the
+    // global `overlayOpacity` (the value the user sets via Alt+= / Alt+- /
+    // Alt+0). We deliberately do NOT force 1.0 here — previously this
+    // window would pop up fully opaque while main/chat stayed dim, which
+    // is jarring: the user moves the slider down for stealth and one
+    // window "leaks" at full brightness. Now all three stealth overlays
+    // (main / chat / llmResponse) move together as one opacity group.
+    try { win.setOpacity(this.overlayOpacity); } catch (e) { logger.warn('setOpacity failed', { err: e.message }); }
+    // Position the LLM window RELATIVE to wherever the main router window
+    // currently is — same x, just below it with the configured gap. We no
+    // longer call `centerWindow(win)` here, because that was snapping the
+    // window back to top-center every time the user pressed Ctrl+Alt+S/D/X,
+    // and the user reported "the LLM window keeps jumping around and ends
+    // up invisible". Relative positioning keeps the user's chosen layout
+    // intact across screenshot / send / clear actions.
+    try { this.positionLLMRelativeToMain(); } catch (e) { logger.warn('positionLLMRelativeToMain failed', { err: e.message }); }
+    try { this.showOnCurrentDesktop(win); } catch (e) { logger.warn('showOnCurrentDesktop failed', { err: e.message }); }
+    try { win.moveTop(); } catch (e) { logger.warn('moveTop failed', { err: e.message }); }
+    try { win.focus(); } catch (e) { logger.warn('focus failed', { err: e.message }); }
+    logger.info('LLM window brought to front', {
+      reason,
+      visible: win.isVisible(),
+      bounds: win.getBounds ? win.getBounds() : null
+    });
   }
 
   showSettings() {
@@ -1491,21 +1841,21 @@ class WindowManager {
     if (!llmWindow || this.isScreenBeingShared) return;
 
     const optimalSize = this.calculateOptimalWindowSize(contentMetrics);
-    
+
     // Ensure we have valid numbers for setSize
-    const width = Math.round(Number(optimalSize.width)) || 840;
-    const height = Math.round(Number(optimalSize.height)) || 480;
-    
+    const width = Math.round(Number(optimalSize.width)) || 1280;
+    const height = Math.round(Number(optimalSize.height)) || 620;
+
     llmWindow.setSize(width, height);
-    
+
     // If windows are bound, position them together; otherwise center the LLM window
     if (this.bindWindows) {
       this.positionBoundWindows();
     } else {
       this.centerWindow(llmWindow);
     }
-    
-    logger.debug('LLM window resized', { 
+
+    logger.debug('LLM window resized', {
       newSize: `${width}x${height}`,
       basedOnContent: !!contentMetrics,
       boundWindows: this.bindWindows
@@ -1515,21 +1865,26 @@ class WindowManager {
   calculateOptimalWindowSize(contentMetrics) {
     const display = this.currentDisplay || screen.getPrimaryDisplay();
     const { width: screenWidth, height: screenHeight } = display.workArea || display.workAreaSize;
-    
-    let width = 840; // Default LLM window width
-    let height = 480; // Default LLM window height
-    
+
+    let width = 1280; // Default LLM window width - wide by default so code is fully visible
+    let height = 620; // Default LLM window height
+
     if (contentMetrics && typeof contentMetrics === 'object') {
       const lineCount = Number(contentMetrics.lineCount) || 20;
       const avgLineLength = Number(contentMetrics.avgLineLength) || 80;
-      
-      width = Math.min(Math.max(avgLineLength * 8, 500), screenWidth * 0.8);
-      height = Math.min(Math.max(lineCount * 25 + 100, 300), screenHeight * 0.8);
+      const hasCode = !!contentMetrics.hasCode;
+      // When there's code, give the code panel ~60% of the window width so long
+      // lines don't get clipped behind a horizontal scrollbar.
+      const widthPerChar = hasCode ? 12 : 9;
+      const minWidth = hasCode ? 1100 : 900;
+
+      width = Math.min(Math.max(avgLineLength * widthPerChar, minWidth), screenWidth * 0.95);
+      height = Math.min(Math.max(lineCount * 24 + 160, 400), screenHeight * 0.9);
     }
-    
-    return { 
-      width: Math.round(Number(width)) || 840, 
-      height: Math.round(Number(height)) || 480 
+
+    return {
+      width: Math.round(Number(width)) || 1280,
+      height: Math.round(Number(height)) || 620
     };
   }
 
@@ -1554,7 +1909,7 @@ class WindowManager {
 
   broadcastToAllWindows(channel, data) {
     const windowStates = {};
-    
+
     this.windows.forEach((window, type) => {
       if (!window.isDestroyed()) {
         window.webContents.send(channel, data);
@@ -1567,16 +1922,30 @@ class WindowManager {
         windowStates[type] = { isDestroyed: true };
       }
     });
-    
-    logger.info('Broadcast sent to all windows', { 
-      channel, 
-      windowCount: this.windows.size,
-      windowStates,
-      dataKeys: data ? Object.keys(data) : [],
-      // Fixed: Check for 'content' instead of 'response' to match actual data structure
-      dataPreview: data && data.content ? data.content.substring(0, 50) + '...' : 
-                   data && data.response ? data.response.substring(0, 50) + '...' : 'No response'
-    });
+
+    // Per-chunk streaming broadcasts (e.g. transcription-llm-response-chunk
+    // fires every ~10ms during a response) used to log a multi-line JSON
+    // block here. At one response per minute that produced ~150k log lines
+    // per day and buried the actual crash signatures. Keep the loud logs
+    // for the meaningful channels and drop the rest to debug.
+    const isHighFrequency = typeof channel === 'string' &&
+      (channel.endsWith('-chunk') || channel === 'voice-stream' || channel === 'transcript-partial');
+    if (isHighFrequency) {
+      logger.debug('Broadcast sent to all windows', {
+        channel,
+        windowCount: this.windows.size
+      });
+    } else {
+      logger.info('Broadcast sent to all windows', {
+        channel,
+        windowCount: this.windows.size,
+        windowStates,
+        dataKeys: data ? Object.keys(data) : [],
+        // Fixed: Check for 'content' instead of 'response' to match actual data structure
+        dataPreview: data && data.content ? data.content.substring(0, 50) + '...' :
+                     data && data.response ? data.response.substring(0, 50) + '...' : 'No response'
+      });
+    }
   }
 
   getWindow(type) {

@@ -241,7 +241,7 @@ class GeminiAdapter {
     }
   }
 
-  // ── Multi-image: all queued captures in ONE request (Ctrl+Shift+D) ──
+  // ── Multi-image: all queued captures in ONE request (Ctrl+Alt+D) ──
 
   async processImagesStream(images, { activeSkill, sessionMemory = [], programmingLanguage = null, prompt = null } = {}, onDelta = null) {
     this._assertReady();

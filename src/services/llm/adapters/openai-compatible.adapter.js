@@ -111,7 +111,7 @@ class OpenAICompatibleAdapter {
     if (response && response.trim()) return response;
     const hadThink = /<think>/i.test(String(fullText || ''));
     throw new Error(hadThink
-      ? '模型把输出额度全部用在了思考上，没有产生回答。请再次按 Ctrl+Shift+D 重试。'
+      ? '模型把输出额度全部用在了思考上，没有产生回答。请再次按 Ctrl+Alt+D 重试。'
       : '模型返回了空回答，请重试。');
   }
 

@@ -146,12 +146,21 @@ For Azure Speech, create a Speech resource in the [Azure Portal](https://portal.
 
 | Action | Shortcut | Description |
 |---|---|---|
-| Screenshot capture | `Cmd/Ctrl + Shift + S` | Capture the screen and analyze it with Gemini |
+| Queue screenshot | `Cmd/Ctrl + Alt + S` | Capture the screen and add it to the screenshot queue |
+| Send queue | `Cmd/Ctrl + Alt + D` | Send every queued screenshot to the LLM in one request |
+| Clear queue | `Cmd/Ctrl + Alt + X` | Discard every queued screenshot |
 | Toggle speech | `Alt + R` | Start or stop voice recognition, if configured |
 | Toggle visibility | `Cmd/Ctrl + Shift + V` | Show or hide all windows |
 | Toggle interaction | `Cmd/Ctrl + Shift + I` or `Alt + A` | Enable or disable click through |
 | Open chat | `Cmd/Ctrl + Shift + C` | Open the interactive chat window |
 | Settings | `Cmd/Ctrl + ,` | Open the settings panel |
+
+> The screenshot hotkeys are intentionally on `Ctrl+Alt` rather than
+> `Ctrl+Shift`: `Ctrl+Shift+S` is owned by many other apps (Snipping Tool,
+> Teams, OneDrive, GitHub Desktop, VS Code, etc.) and on Windows the OS
+> hands the key to whoever registered first, which made the old shortcut
+> "sometimes work, sometimes not." `Ctrl+Alt+S/D/X` is virtually never
+> taken, so the global registration reliably succeeds.
 
 ## Project status
 
