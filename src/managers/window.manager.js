@@ -67,12 +67,20 @@ class WindowManager {
         title: 'Chat'
       },
       llmResponse: {
-        width: 1280,
-        height: 620,
-        minWidth: 800,
+        // Baseline deliberately small — the previous 1280x620 baseline
+        // combined with `_currentSizes` persistence meant a user who
+        // pressed Ctrl+] once ended up with a window the size of a
+        // primary monitor for every subsequent screenshot analysis.
+        // 960x540 is wide enough for code + prose side-by-side, but
+        // compact enough to leave the LeetCode / IDE clearly visible
+        // behind it (and matches what the user actually wants to read
+        // at a glance — the previous version drowned the screen).
+        width: 960,
+        height: 540,
+        minWidth: 640,
         minHeight: 320,
-        maxWidth: 1920,
-        maxHeight: 1200,
+        maxWidth: 1400,
+        maxHeight: 900,
         file: 'llm-response.html',
         title: 'AI Response',
         alwaysOnTop: true
