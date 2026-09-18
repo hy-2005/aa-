@@ -1,4 +1,4 @@
-const { BrowserWindow, screen, shell, Notification } = require('electron');
+const { BrowserWindow, screen, shell } = require('electron');
 const path = require('path');
 const { execFile } = require('child_process');
 const logger = require('../core/logger').createServiceLogger('WINDOW');
@@ -520,8 +520,19 @@ class WindowManager {
         titleBarOverlay: false,
         transparent: true,
         backgroundColor: '#00000000',
-  // Allow resizing so users can adjust width; we will lock height in handlers
-  resizable: true,
+  // resizable: false — the navigation bar has no manual drag-resize
+  // affordance (Ctrl+[/] is the documented way to resize, via
+  // stepOverlayWindowSize). Setting resizable: true here caused a
+  // long-standing bug at screen boundaries: when main was parked at the
+  // work-area's top-left corner and the cursor hovered near an edge,
+  // Electron would still let the user "drag" the window shape, with the
+  // will-resize handler trying to apply only the new width while
+  // clamping height. Result: the bar visibly grew on the boundary even
+  // though the user only tried to move it. Locking the size at the
+  // BrowserWindow level + routing every resize through setContentSize
+  // is consistent with how llmResponse / chat / screenshotQueue are
+  // configured and removes the boundary edge entirely.
+  resizable: false,
     // Keep the original max width as cap; allow small min width so it can collapse to one icon
     minWidth: 60,
     maxWidth: this.windowConfigs.main.maxWidth,
@@ -1531,7 +1542,13 @@ class WindowManager {
 
     this._pauseTrackingTimers();
     this._broadcastStealthState();
-    this._notifyStealthChange(true, reason);
+    // No _notifyStealthChange() call here — the user explicitly wants
+    // every stealth-toggle path (manual Ctrl+Shift+H, auto-recorder
+    // detection, and the symmetric "leaving stealth" path below) to
+    // stay silent. A desktop notification popping up while the proctor
+    // software is also watching would be both a privacy leak (toast
+    // reveals the user pressed a hotkey) and an attention-grab that
+    // defeats the "invisible while hidden" design.
 
     logger.info('Stealth mode enabled', { reason });
   }
@@ -1575,7 +1592,8 @@ class WindowManager {
     this._stealthVisibleState.clear();
 
     this._broadcastStealthState();
-    this._notifyStealthChange(false, reason);
+    // No _notifyStealthChange() — see the matching comment in
+    // enableStealthMode. Stealth must stay silent on every transition.
 
     logger.info('Stealth mode disabled', { reason });
   }
@@ -1622,32 +1640,6 @@ class WindowManager {
         detectedRecorders: Array.from(this._screenRecordersDetected || []),
       });
     } catch (_) { /* ignore — broadcastToAllWindows may not exist yet */ }
-  }
-
-  _notifyStealthChange(enabled, reason) {
-    try {
-      if (!Notification || !Notification.isSupported || !Notification.isSupported()) return;
-      let title;
-      let body;
-      if (enabled) {
-        title = 'OpenCluely · 隐身已开启';
-        if (reason === 'auto-screen-recorder') {
-          const names = (this._screenRecordersDetected || []).slice(0, 3).join(', ') || '未知软件';
-          body = `检测到屏幕录制/共享软件：${names}。所有悬浮窗口已隐藏。`;
-        } else {
-          body = '所有悬浮窗口已隐藏，按 Ctrl+Shift+H 可恢复显示。';
-        }
-      } else {
-        title = 'OpenCluely · 隐身已关闭';
-        body = reason === 'auto-screen-recorder'
-          ? '屏幕录制/共享软件已退出，悬浮窗口已恢复。'
-          : '悬浮窗口已恢复显示。';
-      }
-      const n = new Notification({ title, body, silent: false });
-      n.show();
-    } catch (e) {
-      logger.debug('Stealth notification failed', { error: e.message });
-    }
   }
 
   // ── Screen recorder auto-detection ────────────────────────────────
