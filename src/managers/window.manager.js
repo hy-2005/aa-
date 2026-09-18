@@ -174,18 +174,29 @@ class WindowManager {
         title: 'Chat'
       },
       llmResponse: {
-        // Default 800×400 — the size the AI response "should be" per
-        // user feedback: wide enough to show a code block without a
-        // horizontal scrollbar, tall enough for ~12 lines of prose
-        // without scrolling, but still leaves the bulk of the screen
-        // visible for the user's actual problem / interview. The
-        // previous 600×320 was too narrow for a single ~80-char code
-        // line, and forced every LLM response into a wrapped, ugly
-        // layout. User can grow via Ctrl+] up to 1400×900, or shrink
-        // via Ctrl+[ all the way to minHeight 20 — see
-        // stepOverlayWindowSize below for the floor.
-        width: 800,
-        height: 400,
+        // DEFAULT size — NOT a fixed size. The width here is only the
+        // starting width the window pops up with on first launch /
+        // after a renderer crash. The user can resize live via
+        // Ctrl+] (wider) or Ctrl+[ (narrower) — that path goes through
+        // stepOverlayWindowSize() which has its own min / max + zoom
+        // logic. The dialled-in size is persisted in _currentSizes
+        // and replayed on the next show / recovery, so after one
+        // Ctrl+] press the wide layout sticks across restarts.
+        //
+        // Default deliberately COMPACT (450×300). User feedback:
+        //   - even though the red-box reference image showed a wide
+        //     AI-response panel, in practice a wide default forces a
+        //     single ~80-char code line to wrap to 2 lines and
+        //     consumes half the screen on 13"-14" laptops.
+        //   - a large AI-response window is also visible to a second
+        //     "room camera" in dual-camera proctor setups, which leaks
+        //     the answer text to anyone reviewing the room feed.
+        // Combined with the Ctrl+Shift+Up/Down scroll shortcut, a
+        // narrow 450px panel + scroll is both more usable AND more
+        // privacy-friendly than a wide panel that wraps everything.
+        // The user can press Ctrl+] to grow on demand.
+        width: 450,
+        height: 300,
         minWidth: 320,
         minHeight: 20,
         maxWidth: 1400,
@@ -2582,17 +2593,22 @@ class WindowManager {
     const llmWindow = this.windows.get('llmResponse');
     if (!llmWindow || this.isScreenBeingShared) return;
 
-    // If the user has previously dialled in a size via Ctrl+[/], that
-    // preference is the SOURCE OF TRUTH — NOT the content-driven size.
-    // Otherwise every response would either:
-    //   (a) yank a user-tuned window back to whatever the content
-    //       happens to measure this turn, or
-    //   (b) call `positionBoundWindows()` which snaps the navigation
-    //       bar back to top-center of the screen (the "every shortcut
-    //       jumps the window" / "main window keeps moving to the
-    //       middle of the screen" complaint).
-    // First-launch / never-resized users still get the pure
-    // content-driven size as a sensible default.
+    // Sizing policy (privacy / dual-camera first):
+    //   (1) If the user has previously dialled in a size via Ctrl+[/]
+    //       — that's the SOURCE OF TRUTH. Their Ctrl+]/Ctrl+[ history
+    //       is replayed here so a "wide response" they manually set up
+    //       sticks across sessions.
+    //   (2) Otherwise, fall back to the COMPACT default from
+    //       windowConfigs.llmResponse (450×300). We deliberately do
+    //       NOT call calculateOptimalWindowSize(contentMetrics) here
+    //       anymore — the previous content-driven sizing grew the
+    //       window to 1280×620 (or 95% of screen width) whenever the
+    //       LLM returned a verbose answer, and on dual-camera
+    //       proctoring setups the AI's response text was visible to the
+    //       room camera the whole time it was on screen. Combined
+    //       with the Ctrl+Shift+Up/Down scroll shortcut, a compact
+    //       default + scroll is both more usable AND keeps the panel
+    //       small enough not to dominate the user's monitor.
     const lastSize = this._currentSizes.llmResponse;
     let width;
     let height;
@@ -2600,12 +2616,9 @@ class WindowManager {
       width = lastSize.w;
       height = lastSize.h;
     } else {
-      const optimalSize = this.calculateOptimalWindowSize(contentMetrics);
       const cfg = this.windowConfigs.llmResponse || {};
-      const maxW = cfg.maxWidth || 1920;
-      const maxH = cfg.maxHeight || 1200;
-      width = Math.min(Math.round(Number(optimalSize.width)) || 1280, maxW);
-      height = Math.min(Math.round(Number(optimalSize.height)) || 620, maxH);
+      width = cfg.width || 450;
+      height = cfg.height || 300;
     }
 
     try {
@@ -2629,32 +2642,6 @@ class WindowManager {
       userPreferredSize: lastSize ? `${lastSize.w}x${lastSize.h}` : null,
       basedOnContent: !lastSize && !!contentMetrics
     });
-  }
-
-  calculateOptimalWindowSize(contentMetrics) {
-    const display = this.currentDisplay || screen.getPrimaryDisplay();
-    const { width: screenWidth, height: screenHeight } = display.workArea || display.workAreaSize;
-
-    let width = 1280; // Default LLM window width - wide by default so code is fully visible
-    let height = 620; // Default LLM window height
-
-    if (contentMetrics && typeof contentMetrics === 'object') {
-      const lineCount = Number(contentMetrics.lineCount) || 20;
-      const avgLineLength = Number(contentMetrics.avgLineLength) || 80;
-      const hasCode = !!contentMetrics.hasCode;
-      // When there's code, give the code panel ~60% of the window width so long
-      // lines don't get clipped behind a horizontal scrollbar.
-      const widthPerChar = hasCode ? 12 : 9;
-      const minWidth = hasCode ? 1100 : 900;
-
-      width = Math.min(Math.max(avgLineLength * widthPerChar, minWidth), screenWidth * 0.95);
-      height = Math.min(Math.max(lineCount * 24 + 160, 400), screenHeight * 0.9);
-    }
-
-    return {
-      width: Math.round(Number(width)) || 1280,
-      height: Math.round(Number(height)) || 620
-    };
   }
 
   centerWindow(window) {
