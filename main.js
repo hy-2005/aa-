@@ -80,8 +80,14 @@ if (process.platform === "linux") {
 // Keep Chromium network noise out of the terminal; app-level logs still go through Winston.
 app.commandLine.appendSwitch("log-level", "3");
 // Surface renderer/GPU crash output in the terminal while debugging the
-// "window dies after provider selection" issue. Remove when resolved.
-app.commandLine.appendSwitch("enable-logging");
+// "window dies after provider selection" issue. Dev-only: in packaged
+// builds Chromium allocates a NEW CONSOLE WINDOW for every child process
+// carrying --enable-logging (GPU, Network Service), which is the black
+// cmd window users see on launch — and closing that console kills the
+// child with 0xC000013A (STATUS_CONTROL_C_EXIT).
+if (!app.isPackaged) {
+  app.commandLine.appendSwitch("enable-logging");
+}
 app.commandLine.appendSwitch("disable-background-networking");
 app.commandLine.appendSwitch("disable-component-update");
 app.commandLine.appendSwitch("disable-domain-reliability");

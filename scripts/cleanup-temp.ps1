@@ -1,4 +1,4 @@
-# cleanup-temp.ps1 — kill leftover "windows个人助手.exe" processes and
+﻿# cleanup-temp.ps1 — kill leftover "windows个人助手.exe" processes and
 # remove the NSIS staging directories under %LOCALAPPDATA%\Temp that the
 # installer creates while extracting the bundled app.
 #
