@@ -1,7 +1,92 @@
-const { BrowserWindow, screen, shell } = require('electron');
+const { BrowserWindow, screen, shell, Notification } = require('electron');
 const path = require('path');
+const { execFile } = require('child_process');
 const logger = require('../core/logger').createServiceLogger('WINDOW');
 const config = require('../core/config');
+
+// Process-name signatures for apps that either record the screen, mirror
+// it to a remote viewer (interview proctoring), or run anti-cheat that
+// enumerates windows. When ANY of these are running we automatically flip
+// into stealth mode — hide every overlay, stop the position-tracking
+// timers, suppress always-on-top recomputation — so that the proctor
+// software doesn't see a foreign window pop into existence, move, or
+// recapture any input.
+//
+// Platform-keyed so the list is auditable per-OS. Names are matched
+// case-insensitively against the executable basename (Windows: Image
+// Name column of `tasklist`; Unix: `comm` column of `ps -A`).
+const SCREEN_RECORDER_SIGNATURES = {
+  win32: [
+    // Dedicated screen recorders
+    'OBS Studio.exe', 'obs64.exe', 'obs.exe', 'OBS.exe',
+    'Bandicam.exe', 'bdcam.exe', 'bdcam64.exe',
+    'Camtasia.exe', 'CamtasiaStudio.exe',
+    'Snagit.exe', 'Snagit32.exe', 'SnagitEditor.exe',
+    'FlashBack Recorder.exe', 'FBRecorder.exe',
+    'Action1.exe', 'action1_x64.exe',
+    'Debut.exe',
+    'oCam.exe',
+    'Apowersoft Recorder.exe',
+    'iTop Screen Recorder.exe',
+    // Conferencing apps (have built-in screen share)
+    'Zoom.exe',
+    'Teams.exe', 'ms-teams.exe',
+    'Skype.exe',
+    'Discord.exe', 'DiscordCanary.exe',
+    'Slack.exe',
+    // Chinese conferencing + proctoring
+    'DingTalk.exe', '钉钉.exe',
+    'WXWork.exe', 'WeChatWork.exe', '企业微信.exe',
+    'TencentMeeting.exe', '腾讯会议.exe', 'wemeetapp.exe',
+    'Lark.exe', 'Feishu.exe', '飞书.exe',
+    'VoovMeeting.exe', 'VooVMeeting.exe',
+    'GotoMeeting.exe', 'g2mcomm.exe',
+    'WebexMta.exe', 'atmgr.exe', 'CiscoWebexStart.exe',
+    // Anti-cheat / lockdown browsers used by certification exams
+    'LockDown Browser.exe', 'Respondus.exe', 'RespondusLockDown.exe',
+    'ProctorU.exe', 'Examplify.exe', 'ExamSoft.exe',
+    // Remote-control software (an interviewer is watching)
+    'AnyDesk.exe',
+    'TeamViewer.exe', 'TeamViewer_Service.exe',
+    'RustDesk.exe',
+    'Supremo.exe',
+    'ShowMyPC.exe',
+    'AeroAdmin.exe',
+  ],
+  darwin: [
+    'OBS Studio', 'OBS',
+    'QuickTime Player',
+    'Loom',
+    'ScreenFlow Record', 'ScreenFlow',
+    'Snagit',
+    'Camtasia',
+    'zoom.us',
+    'Microsoft Teams', 'Microsoft Teams (work preview)',
+    'Discord',
+    'Skype',
+    'Slack',
+    'DingTalk', '钉钉',
+    'WeChat', '企业微信', 'WeCom',
+    'Lark', '飞书', 'Feishu',
+    'TencentMeeting', '腾讯会议',
+    'VoovMeeting',
+    'AnyDesk',
+    'TeamViewer',
+    'RustDesk',
+    'Webex Meeting Center',
+    'Cisco Webex Meeting',
+  ],
+  linux: [
+    'obs',
+    'SimpleScreenRecorder',
+    'recordmydesktop',
+    'ffmpeg',
+    'zoom',
+    'teams',
+    'discord',
+    'slack',
+  ],
+};
 
 class WindowManager {
   constructor() {
@@ -29,6 +114,23 @@ class WindowManager {
     // comes back at the size the user previously dialled in via Ctrl+[/],
     // not the default 1280x620. Recorded by stepOverlayWindowSize().
     this._currentSizes = {};
+
+    // ── Stealth mode ────────────────────────────────────────────────
+    // When true, every overlay is hidden and every "make noise" path
+    // (setAlwaysOnTop, moveBoundWindows, position recompute, screen
+    // tracking) short-circuits. Two entry points:
+    //   (a) user toggle: Ctrl+Shift+H → toggleStealthMode() (manual)
+    //   (b) auto: _scanScreenRecorders() finds a known recorder PID
+    //       → enableStealthMode('auto-screen-recorder')
+    // We track the source so the screen-recorder watcher can clear
+    // itself when the recorder exits, while a manual toggle stays
+    // off even if a one-off recorder happened to be running.
+    this.isStealthMode = false;
+    this._stealthSource = null; // 'manual-toggle' | 'auto-screen-recorder' | null
+    this._stealthVisibleState = new Map(); // type -> wasVisible before stealth
+    // Screen-recorder auto-engagement state.
+    this._screenRecorderScanInterval = null;
+    this._screenRecordersDetected = [];
     
     // Add debouncing to prevent excessive operations
     this.lastEnforceTime = 0;
@@ -840,6 +942,7 @@ class WindowManager {
     
     // More aggressive event listeners to maintain always-on-top behavior
     const enforceAlwaysOnTop = () => {
+      if (this.isStealthMode) return; // No audible "I'm here" while hidden
       if (!window.isDestroyed()) {
         try {
           if (process.platform === 'darwin') {
@@ -858,33 +961,47 @@ class WindowManager {
         }
       }
     };
-    
-    // Event-based enforcement
+
+    // Event-based enforcement. Stealth mode short-circuits every one of
+    // these — proctor / recorder software listens for window-position
+    // changes, and three setAlwaysOnTop calls per blur would create a
+    // detectable signature even when content protection hides the
+    // pixels.
     window.on('blur', () => {
+      if (this.isStealthMode) return;
       setTimeout(enforceAlwaysOnTop, 50);
       setTimeout(enforceAlwaysOnTop, 200);
       setTimeout(enforceAlwaysOnTop, 500);
     });
-    
+
     window.on('show', () => {
+      if (this.isStealthMode) return;
       setTimeout(enforceAlwaysOnTop, 50);
       setTimeout(enforceAlwaysOnTop, 200);
     });
-    
+
     window.on('focus', () => {
+      if (this.isStealthMode) return;
       setTimeout(enforceAlwaysOnTop, 50);
     });
-    
+
     window.on('restore', () => {
+      if (this.isStealthMode) return;
       setTimeout(enforceAlwaysOnTop, 50);
     });
-    
-    // Periodic enforcement every 3 seconds (more frequent)
+
+    // Periodic enforcement every 3 seconds (more frequent). The early
+    // return when isStealthMode is true means we still pay the 3-second
+    // tick (cheap) but skip the actual setAlwaysOnTop round-trip. We
+    // deliberately DON'T clearInterval here — that would require us to
+    // re-create the interval when stealth turns off, with all the
+    // window-reference plumbing that entails.
     const periodicEnforcement = setInterval(() => {
       if (window.isDestroyed()) {
         clearInterval(periodicEnforcement);
         return;
       }
+      if (this.isStealthMode) return;
       enforceAlwaysOnTop();
     }, 3000);
     
@@ -1000,6 +1117,7 @@ class WindowManager {
    * the target overlay is missing/destroyed.
    */
   positionOverlayUnderMain(type) {
+    if (this.isStealthMode) return; // Hidden = don't even move them
     const mainWin = this.windows.get('main');
     const target = this.windows.get(type);
     if (!mainWin || mainWin.isDestroyed()) return;
@@ -1034,6 +1152,7 @@ class WindowManager {
 // with screen bounds clamping. Works regardless of bindWindows state so
 // Alt+arrow / Ctrl+arrow always respond, even when window binding is off.
   moveBoundWindows(deltaX, deltaY) {
+    if (this.isStealthMode) return; // Don't reposition while hidden
     const mainWindow = this.windows.get('main');
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
@@ -1086,6 +1205,10 @@ class WindowManager {
 
   showOnCurrentDesktop(win) {
     if (!win || win.isDestroyed()) return;
+    // Stealth = no-op: every overlay should stay hidden. Even a single
+    // `win.show()` here would make the window briefly appear before the
+    // screenshot queues up, and proctor software notices that flicker.
+    if (this.isStealthMode) return;
 
     const llmWin = this.windows.get('llmResponse');
     const isLLM = llmWin && !llmWin.isDestroyed() && win.id === llmWin.id;
@@ -1232,6 +1355,7 @@ class WindowManager {
   }
 
   switchToWindow(windowType) {
+    if (this.isStealthMode) return; // No switching visibility while stealth
     if (this.windows.has('chat') && this.windows.get('chat').isVisible()) {
       this.hideChatWindow();
       return;
@@ -1251,7 +1375,7 @@ class WindowManager {
       this.showOnCurrentDesktop(targetWindow);
 
       this.activeWindow = windowType;
-      
+
       logger.info('Switched to window', {
         windowType,
         isVisible: this.isVisible
@@ -1260,6 +1384,7 @@ class WindowManager {
   }
 
   showAllWindows() {
+    if (this.isStealthMode) return;
     if (this.isScreenBeingShared) {
       return;
     }
@@ -1269,31 +1394,38 @@ class WindowManager {
         this.showOnCurrentDesktop(window);
       }
     });
-    
+
     this.isVisible = true;
     const activeWindow = this.windows.get(this.activeWindow);
     if (activeWindow) {
       activeWindow.focus();
     }
-    
-    logger.info('All windows shown on current desktop', { 
+
+    logger.info('All windows shown on current desktop', {
       activeWindow: this.activeWindow,
-      windowCount: this.windows.size 
+      windowCount: this.windows.size
     });
   }
 
   hideAllWindows() {
+    if (this.isStealthMode) return; // already hidden
     this.windows.forEach((window, type) => {
       if (type !== 'llmResponse') {
         window.hide();
       }
     });
-    
+
     this.isVisible = false;
     logger.info('All windows hidden');
   }
 
   toggleVisibility() {
+    if (this.isStealthMode) {
+      // Stealth wins over the legacy visibility toggle — user must use
+      // Ctrl+Shift+H to come back, so they can't accidentally flicker
+      // the overlay into view while the proctor is recording.
+      return false;
+    }
     if (this.isScreenBeingShared) {
       return this.isVisible;
     }
@@ -1307,9 +1439,331 @@ class WindowManager {
     return this.isVisible;
   }
 
+  // ────────────────────────────────────────────────────────────────────
+  // Stealth mode — privacy / anti-proctor mode.
+  //
+  // When `isStealthMode` is true, every overlay window is hidden and
+  // every "make noise" path (setAlwaysOnTop round-trips, position
+  // recompute, screen-tracking timers) is short-circuited. This is what
+  // stops a screen recorder / proctor / remote-control app from
+  // noticing that a foreign window came into existence, moved, or
+  // emitted always-on-top recomputation events while the user is
+  // being observed. Content protection (`setContentProtection(true)`)
+  // already hides the *pixels* from the recorder; stealth mode goes
+  // one step further and stops the *events* from firing.
+  //
+  // Two entry points:
+  //   (a) user toggle (Ctrl+Shift+H) → `toggleStealthMode()` (manual)
+  //   (b) auto: a recurring process scan finds a known recorder PID
+  //       → `enableStealthMode('auto-screen-recorder')`
+  //
+  // When source is auto and the recorder exits, stealth turns itself
+  // off again. Manual toggle is sticky — the user has to Ctrl+Shift+H
+  // to come back even if a recorder happened to be running.
+  // ────────────────────────────────────────────────────────────────────
+
+  /**
+   * Enter stealth mode. Idempotent. `reason` is recorded in
+   * `_stealthSource` so the auto-recorder watcher knows whether to
+   * clear the state automatically or wait for the user.
+   *
+   * Side effects, in order:
+   *   1. Mark `isStealthMode`, record `reason` in `_stealthSource`.
+   *   2. Snapshot which overlays are currently visible (so we can
+   *      restore on disable).
+   *   3. Hide every overlay. Stealth = nothing on screen.
+   *   4. Stop `screenWatcher` / `desktopWatcher` so position-trackers
+   *      don't fire `setPosition` while hidden.
+   *   5. Broadcast `stealth-state-changed` so any renderer that
+   *      eventually appears can paint a "stealth on" badge.
+   *   6. Show an OS notification so the user has visual confirmation
+   *      even though every overlay is hidden.
+   */
+  enableStealthMode(reason = 'manual-toggle') {
+    if (this.isStealthMode) {
+      // Manual toggle wins over auto-recorder — if the user explicitly
+      // turned stealth off, don't let an earlier auto-engagement
+      // reassert itself through this code path.
+      if (this._stealthSource !== 'auto-screen-recorder' || reason === 'manual-toggle') {
+        this._stealthSource = reason;
+        this._broadcastStealthState();
+      }
+      return;
+    }
+    this.isStealthMode = true;
+    this._stealthSource = reason;
+
+    this._stealthVisibleState.clear();
+    ['main', 'chat', 'llmResponse', 'screenshotQueue'].forEach((type) => {
+      const win = this.windows.get(type);
+      if (win && !win.isDestroyed()) {
+        this._stealthVisibleState.set(type, win.isVisible());
+        if (win.isVisible()) {
+          try { win.hide(); } catch (_) { /* ignore */ }
+        }
+      }
+    });
+
+    this._pauseTrackingTimers();
+    this._broadcastStealthState();
+    this._notifyStealthChange(true, reason);
+
+    logger.info('Stealth mode enabled', { reason });
+  }
+
+  /**
+   * Exit stealth mode. The auto-recorder watcher calls this when the
+   * recorder PID disappears; the user presses Ctrl+Shift+H.
+   *
+   * Refuses to exit when source is `auto-screen-recorder` and the
+   * caller is some other reason — i.e. the user can't accidentally
+   * punch through the proctor's window. (Ctrl+Shift+H passes
+   * `manual-toggle`, which is allowed to override the auto source.)
+   */
+  disableStealthMode(reason = 'manual-toggle') {
+    if (!this.isStealthMode) return;
+    // Auto-recorder state is sticky: only the auto path or an explicit
+    // manual toggle may clear it.
+    if (this._stealthSource === 'auto-screen-recorder' &&
+        reason !== 'auto-screen-recorder' &&
+        reason !== 'manual-toggle') {
+      logger.debug('disableStealthMode refused — auto source still set', { reason });
+      return;
+    }
+    this.isStealthMode = false;
+    this._stealthSource = null;
+
+    this._resumeTrackingTimers();
+
+    // Re-show whatever was visible before stealth engaged. We
+    // deliberately call `win.show()` directly rather than
+    // `showOnCurrentDesktop` to avoid the always-on-top round-trip;
+    // content protection still hides us from any recorder that
+    // re-appeared in the meantime.
+    this._stealthVisibleState.forEach((wasVisible, type) => {
+      if (!wasVisible) return;
+      const win = this.windows.get(type);
+      if (win && !win.isDestroyed()) {
+        try { win.show(); } catch (_) { /* ignore */ }
+      }
+    });
+    this._stealthVisibleState.clear();
+
+    this._broadcastStealthState();
+    this._notifyStealthChange(false, reason);
+
+    logger.info('Stealth mode disabled', { reason });
+  }
+
+  toggleStealthMode() {
+    if (this.isStealthMode) this.disableStealthMode('manual-toggle');
+    else this.enableStealthMode('manual-toggle');
+    return this.isStealthMode;
+  }
+
+  /**
+   * Stop the 2s screen-watcher and 10s desktop-watcher intervals.
+   * `periodicEnforcement` per-window is left running (with an internal
+   * `if (this.isStealthMode) return` guard added in applyStealthMeasures),
+   * since recreating it on resume would need per-window reference
+   * plumbing. The early-return cost is one boolean read per 3s.
+   */
+  _pauseTrackingTimers() {
+    if (this.screenWatcher) {
+      clearInterval(this.screenWatcher);
+      this.screenWatcher = null;
+    }
+    if (this.desktopWatcher) {
+      clearInterval(this.desktopWatcher);
+      this.desktopWatcher = null;
+    }
+  }
+
+  _resumeTrackingTimers() {
+    if (!this.isInitialized) return;
+    if (!this.screenWatcher) {
+      this.screenWatcher = setInterval(() => this.trackActiveScreen(), 2000);
+    }
+    if (!this.desktopWatcher) {
+      this.desktopWatcher = setInterval(() => this.trackDesktopChanges(), 10000);
+    }
+  }
+
+  _broadcastStealthState() {
+    try {
+      this.broadcastToAllWindows('stealth-state-changed', {
+        enabled: this.isStealthMode,
+        source: this._stealthSource,
+        detectedRecorders: Array.from(this._screenRecordersDetected || []),
+      });
+    } catch (_) { /* ignore — broadcastToAllWindows may not exist yet */ }
+  }
+
+  _notifyStealthChange(enabled, reason) {
+    try {
+      if (!Notification || !Notification.isSupported || !Notification.isSupported()) return;
+      let title;
+      let body;
+      if (enabled) {
+        title = 'OpenCluely · 隐身已开启';
+        if (reason === 'auto-screen-recorder') {
+          const names = (this._screenRecordersDetected || []).slice(0, 3).join(', ') || '未知软件';
+          body = `检测到屏幕录制/共享软件：${names}。所有悬浮窗口已隐藏。`;
+        } else {
+          body = '所有悬浮窗口已隐藏，按 Ctrl+Shift+H 可恢复显示。';
+        }
+      } else {
+        title = 'OpenCluely · 隐身已关闭';
+        body = reason === 'auto-screen-recorder'
+          ? '屏幕录制/共享软件已退出，悬浮窗口已恢复。'
+          : '悬浮窗口已恢复显示。';
+      }
+      const n = new Notification({ title, body, silent: false });
+      n.show();
+    } catch (e) {
+      logger.debug('Stealth notification failed', { error: e.message });
+    }
+  }
+
+  // ── Screen recorder auto-detection ────────────────────────────────
+  /**
+   * Start polling the process list every 5 seconds for known screen
+   * recorders / proctoring / remote-control apps. When found, we
+   * auto-engage stealth. Idempotent.
+   */
+  startScreenRecorderWatcher() {
+    if (this._screenRecorderScanInterval) return;
+    // Run once immediately so the first poll doesn't have to wait 5s
+    // for a user who's already in the proctored session.
+    this._scanScreenRecorders();
+    this._screenRecorderScanInterval = setInterval(
+      () => this._scanScreenRecorders(),
+      5000
+    );
+    logger.info('Screen recorder watcher started');
+  }
+
+  stopScreenRecorderWatcher() {
+    if (this._screenRecorderScanInterval) {
+      clearInterval(this._screenRecorderScanInterval);
+      this._screenRecorderScanInterval = null;
+    }
+  }
+
+  /**
+   * Pull the current process list and look for recorder signatures.
+   * Cross-platform: `tasklist` on Windows, `ps -A -o comm=` on Unix.
+   */
+  async _scanScreenRecorders() {
+    try {
+      const platform = process.platform;
+      let stdout = '';
+      if (platform === 'win32') {
+        // tasklist /FO CSV /NH prints one process per row, columns:
+        // "Image Name","PID","Session Name","Session#","Mem Usage".
+        // We only need column 0 (image name).
+        stdout = await this._execProcessList(['tasklist', '/FO', 'CSV', '/NH']);
+      } else if (platform === 'darwin' || platform === 'linux') {
+        // -o comm prints just the basename; -A includes processes from
+        // every user; trailing `=` suppresses the header.
+        stdout = await this._execProcessList(['ps', '-A', '-o', 'comm=']);
+      } else {
+        return;
+      }
+      const found = this._matchRecorders(stdout, platform);
+      this._applyRecorderDetection(found);
+    } catch (err) {
+      logger.warn('Screen recorder scan failed', { error: err && err.message });
+    }
+  }
+
+  _execProcessList(cmdArgs) {
+    return new Promise((resolve, reject) => {
+      try {
+        execFile(cmdArgs[0], cmdArgs.slice(1), {
+          timeout: 4000,
+          windowsHide: true,
+          maxBuffer: 4 * 1024 * 1024,
+        }, (err, stdout) => {
+          if (err && !stdout) return reject(err);
+          resolve(stdout || '');
+        });
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  _matchRecorders(stdout, platform) {
+    const sigList = SCREEN_RECORDER_SIGNATURES[platform];
+    if (!sigList || !sigList.length) return [];
+    const found = [];
+    const seen = new Set();
+    if (platform === 'win32') {
+      // Each line is `"Image Name","PID",...`. Match the first quoted field.
+      // Lowercased on both sides for case-insensitive compare.
+      const sigLower = new Map();
+      for (const s of sigList) sigLower.set(s.toLowerCase(), s);
+      for (const line of stdout.split(/\r?\n/)) {
+        if (!line) continue;
+        const m = line.match(/^"([^"]+)"/);
+        if (!m) continue;
+        const procLower = m[1].toLowerCase();
+        if (sigLower.has(procLower) && !seen.has(procLower)) {
+          found.push(sigLower.get(procLower));
+          seen.add(procLower);
+        }
+      }
+    } else {
+      // Each line is a basename. Substring match against each signature
+      // is too generous (a build agent running `OBS` in a directory
+      // would match) — compare whole tokens.
+      const tokens = stdout.split(/\r?\n/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+      const tokenSet = new Set(tokens);
+      for (const sig of sigList) {
+        const needle = sig.toLowerCase();
+        if (tokenSet.has(needle) && !seen.has(needle)) {
+          found.push(sig);
+          seen.add(needle);
+        }
+      }
+    }
+    return found;
+  }
+
+  _applyRecorderDetection(found) {
+    const previous = this._screenRecordersDetected || [];
+    const prevSet = new Set(previous);
+    const nextSet = new Set(found);
+    const changed =
+      found.length !== previous.length ||
+      found.some((n) => !prevSet.has(n));
+    if (!changed) {
+      // Still detect the same set as last time; keep the existing
+      // stealth state and skip the broadcast.
+      this._screenRecordersDetected = found;
+      return;
+    }
+    this._screenRecordersDetected = found;
+
+    if (found.length > 0 && !this.isStealthMode) {
+      logger.warn('Screen recorder detected — auto-engaging stealth', { recorders: found });
+      this.enableStealthMode('auto-screen-recorder');
+    } else if (found.length === 0 &&
+               this.isStealthMode &&
+               this._stealthSource === 'auto-screen-recorder') {
+      logger.info('All screen recorders cleared — disengaging stealth');
+      this.disableStealthMode('auto-screen-recorder');
+    } else {
+      // Mixed state — stealth already on, just rebroadcast so the
+      // notification / renderer payload reflects the new list.
+      this._broadcastStealthState();
+    }
+  }
+
   setInteractive(interactive) {
     this.isInteractive = interactive;
-    
+
     this.windows.forEach((window, type) => {
       if (!window.isDestroyed()) {
         if (interactive) {
@@ -1319,11 +1773,16 @@ class WindowManager {
           // Non-interactive mode: enable click-through with forwarding for all windows
           window.setIgnoreMouseEvents(true, { forward: true });
         }
-        window.webContents.send('interaction-mode-changed', interactive);
+        // Skip IPC while in stealth — there's no visible window that
+        // could care about interaction mode, and the renderer would
+        // run with no UI anyway.
+        if (!this.isStealthMode) {
+          window.webContents.send('interaction-mode-changed', interactive);
+        }
       }
     });
-    
-    logger.info('Window interaction mode changed', { 
+
+    logger.info('Window interaction mode changed', {
       interactive,
       clickThrough: !interactive,
       affectedWindows: Array.from(this.windows.keys())
@@ -1332,15 +1791,19 @@ class WindowManager {
 
   toggleInteraction() {
     this.setInteractive(!this.isInteractive);
-    
+
     // Ensure all windows remain always-on-top after interaction mode change
     this.enforceAlwaysOnTopForAllWindows();
-    
+
     return this.isInteractive;
   }
 
   // New method to enforce always-on-top for all windows
   enforceAlwaysOnTopForAllWindows() {
+    // Skip wholesale enforcement while stealth is engaged — every
+    // window is hidden, so the OS won't even draw them, and the
+    // setAlwaysOnTop round-trip itself is detectable.
+    if (this.isStealthMode) return;
     this.windows.forEach((window, type) => {
       if (!window.isDestroyed()) {
         try {
@@ -1469,6 +1932,21 @@ class WindowManager {
       skill: metadata.skill
     });
 
+    if (this.isStealthMode) {
+      // Don't pop the LLM panel while stealth is engaged — the user
+      // explicitly wants to be invisible. The LLM answer is still
+      // streamed through the IPC broadcast below so it lands in the
+      // session history, just not on screen.
+      try {
+        this.broadcastToAllWindows('llm-response', {
+          response: content,
+          metadata,
+          skill: metadata && metadata.skill,
+          hidden: true,
+        });
+      } catch (_) { /* ignore */ }
+      return;
+    }
     if (this.isScreenBeingShared) {
       logger.warn('LLM response blocked due to screen sharing mode');
       return;
@@ -1523,6 +2001,12 @@ class WindowManager {
   }
 
   showLLMLoading() {
+    if (this.isStealthMode) {
+      // Don't show the loading indicator while stealth — there'd be
+      // nothing to show anyway (window is hidden), and the IPC fan-out
+      // could be detected by recorder-side hooks.
+      return;
+    }
     if (this.isScreenBeingShared) {
       logger.warn('LLM loading blocked due to screen sharing mode');
       return;
@@ -1803,6 +2287,7 @@ class WindowManager {
    * opacity as everything else.
    */
   showScreenshotQueue() {
+    if (this.isStealthMode) return; // Queue is invisible while stealth
     let win = this.windows.get('screenshotQueue');
     if (!win || win.isDestroyed()) {
       // Same defense-in-depth pattern as bringLLMWindowToFront: if the
@@ -1858,6 +2343,7 @@ class WindowManager {
    * at top-center, full opacity, on top.
    */
   bringLLMWindowToFront(reason = 'response') {
+    if (this.isStealthMode) return; // No surface while hidden
     const win = this.windows.get('llmResponse');
     if (!win || win.isDestroyed()) {
       // Belt-and-suspenders: the render-process-gone handler should have

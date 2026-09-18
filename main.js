@@ -333,6 +333,16 @@ class ApplicationController {
       await windowManager.initializeWindows({ showMainWindow: !isFirstRun });
       this.setupGlobalShortcuts();
 
+      // Start polling the process list for known screen recorders /
+      // proctor / remote-control apps. Auto-engages stealth when any
+      // show up, disengages when they all exit. Runs forever in the
+      // background — cost is one `tasklist` / `ps` every 5 seconds.
+      try {
+        windowManager.startScreenRecorderWatcher();
+      } catch (e) {
+        logger.warn('Screen recorder watcher failed to start', { error: e.message });
+      }
+
       // Initialize default stealth mode with terminal icon
       this.updateAppIcon("terminal");
 
@@ -479,6 +489,11 @@ class ApplicationController {
       "CommandOrControl+Shift+C": () => windowManager.switchToWindow("chat"),
       "CommandOrControl+Shift+\\": () => this.clearSessionMemory(),
       "CommandOrControl+,": () => windowManager.showSettings(),
+      // Stealth mode — privacy / anti-proctor. Ctrl+Shift+H flips
+      // every overlay off and pauses every background timer; another
+      // press flips them back. Auto-engages when a known screen-share /
+      // proctoring / remote-control app shows up in the process list.
+      "CommandOrControl+Shift+H": () => windowManager.toggleStealthMode(),
       "Alt+A": () => windowManager.toggleInteraction(),
       "Alt+R": () => this.toggleSpeechRecognition(),
       // Main overlay window size: Ctrl+] bigger, Ctrl+[ smaller
@@ -1073,6 +1088,18 @@ class ApplicationController {
   }
 
   toggleSpeechRecognition() {
+    // No mic activity while stealth — Whisper makes a network call (and
+    // a child process), both detectable by proctoring software.
+    if (windowManager && windowManager.isStealthMode) {
+      logger.debug('Speech toggle suppressed by stealth mode');
+      try {
+        windowManager.broadcastToAllWindows("speech-status", {
+          status: '隐身模式下已暂停语音识别',
+          available: speechService.isAvailable ? speechService.isAvailable() : false
+        });
+      } catch (_) { /* ignore */ }
+      return;
+    }
     const isAvailable = typeof speechService.isAvailable === 'function' ? speechService.isAvailable() : !!speechService.getStatus?.().isInitialized;
     if (!isAvailable) {
       logger.warn("Speech recognition unavailable; toggle ignored");
@@ -1183,6 +1210,12 @@ class ApplicationController {
       logger.warn("Screenshot requested before application ready");
       return;
     }
+    // No new screenshots in stealth — captureAndProcess() briefly un-hides
+    // overlays and writes a PNG to disk, both detectable.
+    if (windowManager && windowManager.isStealthMode) {
+      logger.debug("Screenshot suppressed by stealth mode");
+      return;
+    }
     if (this.screenshotQueue.length >= this.SCREENSHOT_QUEUE_MAX) {
       windowManager.broadcastToAllWindows("screenshot-queue-full", {
         max: this.SCREENSHOT_QUEUE_MAX
@@ -1266,6 +1299,13 @@ class ApplicationController {
   /** Ctrl+Alt+X — discard all queued screenshots. */
   clearScreenshotQueue() {
     if (this.screenshotQueue.length === 0) return;
+    // Don't broadcast clear events while stealth; the event itself is
+    // observable to anyone watching IPC traffic.
+    if (windowManager && windowManager.isStealthMode) {
+      this.screenshotQueue = [];
+      logger.debug("Screenshot queue cleared silently (stealth)");
+      return;
+    }
     const count = this.screenshotQueue.length;
     this.screenshotQueue = [];
     windowManager.broadcastToAllWindows("screenshot-queue-cleared", { count });
@@ -1281,6 +1321,13 @@ class ApplicationController {
   async sendQueuedScreenshots() {
     if (!this.isReady) {
       logger.warn("Send queued screenshots requested before application ready");
+      return;
+    }
+    // No LLM traffic in stealth — every sendQueuedScreenshots call ends
+    // with a network round-trip to the LLM provider, which any reasonable
+    // proctor app can correlate with the user pressing Ctrl+Alt+D.
+    if (windowManager && windowManager.isStealthMode) {
+      logger.debug("Queued-screenshot send suppressed by stealth mode");
       return;
     }
     if (this.screenshotQueue.length === 0) {
@@ -1778,6 +1825,7 @@ class ApplicationController {
 
   onWillQuit() {
     globalShortcut.unregisterAll();
+    try { windowManager.stopScreenRecorderWatcher(); } catch (_) { /* ignore */ }
     speechService.shutdown();
     windowManager.destroyAllWindows();
 
