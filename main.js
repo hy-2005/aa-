@@ -1287,7 +1287,7 @@ class ApplicationController {
         count: this.screenshotQueue.length,
         max: this.SCREENSHOT_QUEUE_MAX
       });
-      windowManager.showScreenshotQueue();
+      windowManager.showScreenshotQueue(this.screenshotQueue.length);
     } catch (error) {
       logger.error("Screenshot capture failed", { error: error.message });
       this.broadcastOCRError(`截图失败：${error.message}`);

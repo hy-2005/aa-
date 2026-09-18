@@ -190,16 +190,17 @@ class WindowManager {
       screenshotQueue: {
         // Thin horizontal strip that lives directly under the main router
         // bar while the user is accumulating screenshots with Ctrl+Alt+S.
-        // Height ~120px keeps the thumbs readable without dominating the
-        // screen, and the row scrolls horizontally when more than ~5
-        // captures are queued. Width is wide enough to show the hint
-        // label + ~5 140px thumbs side-by-side.
-        width: 900,
+        // Height 120px is fixed (the strip itself has no scrollbar in the
+        // vertical dimension). Width is dynamic — see
+        // `resizeScreenshotQueueStrip(count)` — driven by the queue count
+        // so an empty / 1-shot queue doesn't waste horizontal real estate
+        // and a 10-shot queue doesn't overflow off-screen.
+        width: 360,
         height: 120,
-        minWidth: 600,
-        minHeight: 100,
-        maxWidth: 1400,
-        maxHeight: 200,
+        minWidth: 280,
+        minHeight: 120,
+        maxWidth: 1100,
+        maxHeight: 120,
         file: 'screenshot-queue.html',
         title: 'Screenshot Queue',
         alwaysOnTop: true
@@ -596,7 +597,11 @@ class WindowManager {
         titleBarStyle: 'hidden',
         transparent: true,
         backgroundColor: '#00000000',
-        resizable: true,
+        // resizable: false — strip has no drag-resize affordance and
+        // dragging its top edge upward to screen top would stretch the
+        // panel. Programmatic resize via setContentSize (Ctrl+[/],
+        // dynamic width via resizeScreenshotQueueStrip) still works.
+        resizable: false,
         minimizable: false,
         maximizable: false,
         closable: false,
@@ -621,7 +626,12 @@ class WindowManager {
         frame: false,
         titleBarStyle: 'hidden',
         transparent: true,
-        resizable: true,
+        // resizable: false — chat window had no manual drag-resize
+        // affordance either; with resizable: true, dragging the top
+        // edge upward near screen boundary stretched the panel. The
+        // documented way to resize is Ctrl+[/] (programmatic), which
+        // is unaffected by this flag.
+        resizable: false,
         minimizable: false,
         maximizable: false,
         closable: false,
@@ -2225,19 +2235,27 @@ class WindowManager {
         const baselineH = cfg.height || 600;
         const [w, h] = win.getContentSize();
         const newW = Math.max(minW, Math.min(maxW, Math.round(w + delta)));
-        const newH = Math.max(minH, Math.min(maxH, Math.round(h + delta)));
-        if (newW === w && newH === h) continue;
+        // Don't resize height — keeping height constant is what keeps
+        // the gap between main and the AI response / queue strip
+        // visually fixed across `Ctrl+` / `Ctrl+]` presses. The old
+        // behaviour scaled height by the same delta as width, so each
+        // press pushed the LLM further down (main grew, then LLM was
+        // positioned at mainY + mainH + gap, and the gap "looked"
+        // larger because main itself had grown). Visual scale now
+        // comes from setZoomFactor (icon / text size), not the frame.
+        const newH = h;
+        if (newW === w) continue;
         win.setContentSize(newW, newH);
         // Scale the renderer content by the same ratio so the icons,
         // padding, and text inside grow / shrink in lockstep with the
-        // window frame. Width is the anchor; height follows the same
-        // factor so the proportions stay correct.
+        // window width. Width is the anchor; zoom factor handles the
+        // rest so the window height stays stable.
         const rawFactor = newW / baselineW;
         const factor = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, rawFactor));
         // Remember the dialled-in size + zoom so a later recreate of this
         // window (first launch after restart, recovery from a renderer
         // crash, etc.) restores the user's preferred layout instead of
-        // popping back up at the default 1280x620 baseline.
+        // popping back up at the default.
         this._currentSizes[type] = { w: newW, h: newH, zoom: factor };
         try {
           win.webContents.setZoomFactor(factor);
@@ -2309,7 +2327,7 @@ class WindowManager {
    * user who dialled Alt+- down for stealth sees the queue at the same
    * opacity as everything else.
    */
-  showScreenshotQueue() {
+  showScreenshotQueue(count) {
     if (this.isStealthMode) return; // Queue is invisible while stealth
     let win = this.windows.get('screenshotQueue');
     if (!win || win.isDestroyed()) {
@@ -2319,7 +2337,7 @@ class WindowManager {
       logger.warn('screenshotQueue window missing/destroyed, recovering on demand');
       try {
         this.createScreenshotQueueWindow().then(() => {
-          this.showScreenshotQueue();
+          this.showScreenshotQueue(count);
         }).catch((err) => {
           logger.error('screenshotQueue recovery failed', { error: err.message });
         });
@@ -2335,6 +2353,12 @@ class WindowManager {
     if (llmWin && !llmWin.isDestroyed() && llmWin.isVisible()) {
       try { llmWin.hide(); } catch (_) { /* ignore */ }
     }
+    // Size the strip to fit the queue count before surfacing it,
+    // so the user sees the right width on first paint rather than the
+    // width animating from the default to the count-fit one.
+    if (typeof count === 'number' && count >= 0) {
+      this.resizeScreenshotQueueStrip(count);
+    }
     try { win.setOpacity(this.overlayOpacity); } catch (e) { logger.warn('setOpacity failed (queue)', { err: e.message }); }
     try { this.positionOverlayUnderMain('screenshotQueue'); } catch (e) { logger.warn('positionOverlayUnderMain failed (queue)', { err: e.message }); }
     try { this.showOnCurrentDesktop(win); } catch (e) { logger.warn('showOnCurrentDesktop failed (queue)', { err: e.message }); }
@@ -2343,6 +2367,7 @@ class WindowManager {
     // focus chain so the browser stays foreground.
     logger.info('Screenshot queue shown', {
       visible: win.isVisible(),
+      count: typeof count === 'number' ? count : null,
       bounds: win.getBounds ? win.getBounds() : null
     });
   }
@@ -2355,6 +2380,36 @@ class WindowManager {
       try { win.hide(); } catch (_) { /* ignore */ }
       logger.info('Screenshot queue hidden');
     }
+  }
+
+  /**
+   * Resize the screenshot-queue strip's width to match the actual
+   * number of queued thumbs. Previously the strip held a fixed 900px
+   * width even with 0 or 1 thumbs (wasted horizontal space) and a
+   * fixed 1400px max even with 10 thumbs (clipped at the right
+   * edge of the screen). Now:
+   *   - hint label (~150px) + (count * 150px) for each thumb,
+   *   - clamped to [minWidth, maxWidth] from windowConfigs.screenshotQueue,
+   *   - beyond maxWidth, the strip's own overflow-x: auto kicks in and
+   *     shows a horizontal scrollbar.
+   * Height is left alone — the strip is 120px tall by design.
+   */
+  resizeScreenshotQueueStrip(count) {
+    const win = this.windows.get('screenshotQueue');
+    if (!win || win.isDestroyed()) return;
+    const cfg = this.windowConfigs.screenshotQueue || {};
+    const hintLabelW = 160;
+    const thumbW = 150;
+    const desired = hintLabelW + Math.max(0, Number(count) || 0) * thumbW;
+    const minW = cfg.minWidth || 280;
+    const maxW = cfg.maxWidth || 1100;
+    const w = Math.max(minW, Math.min(maxW, desired));
+    try {
+      win.setContentSize(w, cfg.height);
+    } catch (_) { /* ignore */ }
+    logger.debug('Screenshot queue strip resized to count', {
+      count, w, minW, maxW
+    });
   }
 
   /**
