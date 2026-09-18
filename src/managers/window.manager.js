@@ -23,6 +23,12 @@ class WindowManager {
     // Set true for ~500ms after Ctrl+[ / Ctrl+] to prevent the renderer's
     // resizeWindowToContent from snapping the new height back down.
     this._suspendAutoShrink = 0;
+    // Last user-adjusted content size + zoom factor per overlay window.
+    // Read by createWindow() so that when an LLM window is recreated
+    // (renderer crash recovery, first launch after restart, etc.) it
+    // comes back at the size the user previously dialled in via Ctrl+[/],
+    // not the default 1280x620. Recorded by stepOverlayWindowSize().
+    this._currentSizes = {};
     
     // Add debouncing to prevent excessive operations
     this.lastEnforceTime = 0;
@@ -535,14 +541,20 @@ class WindowManager {
 
     // Pin zoom: if a +/- hotkey ever fails to register system-wide, the
     // keypress lands in the focused Chromium window and zooms the UI.
-    // Block every zoom combo at the renderer boundary and hold zoom level 0.
-    window.webContents.setZoomLevel(0);
+    // Block every zoom combo at the renderer boundary and hold zoom at the
+    // last user-selected factor. The factor is restored from
+    // `_currentSizes` if we have one (i.e. the user previously pressed
+    // Ctrl+] to enlarge this window and the LLM window just got
+    // recreated) — otherwise default to 1.0 so the first-launch UI is
+    // identical to before this tracking was added.
+    const initialZoom = (this._currentSizes[type] && this._currentSizes[type].zoom) || 1.0;
+    window.webContents.setZoomFactor(initialZoom);
     window.webContents.on('before-input-event', (event, input) => {
       if (input.type !== 'keyDown') return;
       const key = (input.key || '').toLowerCase();
       if ((input.control || input.alt) && ['+', '-', '=', '0', '_'].includes(key)) {
         event.preventDefault();
-        window.webContents.setZoomLevel(0);
+        window.webContents.setZoomFactor(initialZoom);
       }
     });
 
@@ -565,7 +577,28 @@ class WindowManager {
 
   // Load the HTML file
     await window.loadFile(windowConfig.file);
-    
+
+    // If the user has previously resized this overlay window via Ctrl+[/]
+    // and we just (re)created it — first launch after a settings tweak,
+    // recovery from a renderer crash, etc. — restore the recorded content
+    // size. Without this the LLM window would pop back up at the default
+    // 1280x620 every time, even though the user clearly preferred the
+    // larger (or smaller) size they dialled in. The zoom factor is already
+    // applied above via setZoomFactor(initialZoom).
+    if (this._currentSizes[type]) {
+      const { w, h } = this._currentSizes[type];
+      try {
+        window.setContentSize(w, h);
+        logger.info('Restored overlay window to last user-tuned size', {
+          type,
+          w, h,
+          zoom: (this._currentSizes[type] && this._currentSizes[type].zoom) || 1.0
+        });
+      } catch (e) {
+        logger.warn('Failed to restore overlay window size', { type, error: e.message });
+      }
+    }
+
   // Position the window
     this.positionWindow(window, type);
     
@@ -1616,6 +1649,11 @@ class WindowManager {
         // factor so the proportions stay correct.
         const rawFactor = newW / baselineW;
         const factor = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, rawFactor));
+        // Remember the dialled-in size + zoom so a later recreate of this
+        // window (first launch after restart, recovery from a renderer
+        // crash, etc.) restores the user's preferred layout instead of
+        // popping back up at the default 1280x620 baseline.
+        this._currentSizes[type] = { w: newW, h: newH, zoom: factor };
         try {
           win.webContents.setZoomFactor(factor);
         } catch (_) { /* ignore */ }
@@ -1842,9 +1880,23 @@ class WindowManager {
 
     const optimalSize = this.calculateOptimalWindowSize(contentMetrics);
 
-    // Ensure we have valid numbers for setSize
-    const width = Math.round(Number(optimalSize.width)) || 1280;
-    const height = Math.round(Number(optimalSize.height)) || 620;
+    // Clamp content-driven size to the configured window max so the
+    // calculation can't produce something outside the framework.
+    const cfg = this.windowConfigs.llmResponse || {};
+    const maxW = cfg.maxWidth || 1920;
+    const maxH = cfg.maxHeight || 1200;
+    const contentW = Math.min(Math.round(Number(optimalSize.width)) || 1280, maxW);
+    const contentH = Math.min(Math.round(Number(optimalSize.height)) || 620, maxH);
+
+    // If the user has previously pressed Ctrl+] to enlarge this window,
+    // the dialled-in size is recorded in _currentSizes. Treat it as a
+    // floor — content should fit inside the user's preferred frame, NOT
+    // collapse the frame back down to whatever the content happens to
+    // measure. First-launch / never-resized users still get the pure
+    // content-driven size.
+    const lastSize = this._currentSizes.llmResponse;
+    const width = lastSize ? Math.max(lastSize.w, contentW) : contentW;
+    const height = lastSize ? Math.max(lastSize.h, contentH) : contentH;
 
     llmWindow.setSize(width, height);
 
@@ -1857,6 +1909,8 @@ class WindowManager {
 
     logger.debug('LLM window resized', {
       newSize: `${width}x${height}`,
+      contentDrivenSize: `${contentW}x${contentH}`,
+      userPreferredSize: lastSize ? `${lastSize.w}x${lastSize.h}` : null,
       basedOnContent: !!contentMetrics,
       boundWindows: this.bindWindows
     });
