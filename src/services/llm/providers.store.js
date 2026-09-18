@@ -9,12 +9,11 @@ const FILE_NAME = 'llm-providers.json';
 let _state = null;
 let _filePath = null;
 
-function init({ userDataDir }) {
+function init({ userDataDir, envPath = process.env.OPENCLUELY_ENV_PATH || path.join(userDataDir, '.env') }) {
   _filePath = path.join(userDataDir, FILE_NAME);
 
   // 1. 如果 JSON 不存在，尝试从 .env 迁移
   if (!fs.existsSync(_filePath)) {
-    const envPath = process.env.OPENCLUELY_ENV_PATH || path.join(userDataDir, '.env');
     if (fs.existsSync(envPath)) {
       const migrated = _migrateFromEnv(envPath);
       if (migrated) {

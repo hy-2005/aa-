@@ -69,7 +69,7 @@
       openai: { apiKey: '', model: 'gpt-4o-mini' },
       'openai-compatible': { apiKey: '', model: '', baseUrl: '' }
     },
-    geminiConfigured: false, // legacy: true if active provider has a key already in store
+    providerSettingsLoaded: false,
     speechProvider: null, // 'whisper' | 'azure' | 'skip'
     azureKey: '',
     azureRegion: '',
@@ -161,13 +161,14 @@
       case 'welcome':
         return true;
       case 'apikey': {
+        if (!state.providerSettingsLoaded) return false;
         const p = state.providers[state.activeProvider];
         if (!p) return false;
         if (state.activeProvider === 'gemini') {
-          return !!p.apiKey.trim() || state.geminiConfigured;
+          return !!p.apiKey.trim();
         }
         if (state.activeProvider === 'openai') {
-          return !!p.apiKey.trim() || state.geminiConfigured;
+          return !!p.apiKey.trim();
         }
         if (state.activeProvider === 'openai-compatible') {
           return !!p.apiKey.trim() && !!p.model.trim() && !!p.baseUrl.trim();
@@ -289,6 +290,9 @@
       if (inputs.baseUrl) inputs.baseUrl.value = p.baseUrl || '';
     });
   }
+  const providerFormElements = [providerSelect, ...Object.values(providerInputs)
+    .flatMap((inputs) => Object.values(inputs)).filter(Boolean)];
+  providerFormElements.forEach((input) => { input.disabled = true; });
 
   // Provider change handler
   providerSelect.addEventListener('change', () => {
@@ -702,8 +706,8 @@
       }), 8000));
       const r = await Promise.race([savePromise, timeoutGuard]);
       console.log('[onboarding] save result', r && { success: r.success, error: r.error });
-      if (r && r.success === false && r.error) {
-        setKeyStatus('error', r.error);
+      if (!r || !r.success) {
+        setKeyStatus('error', (r && r.error) || '配置保存失败，请重试。');
         return;
       }
     }
@@ -838,24 +842,27 @@
 
   // Pre-populate provider config from existing JSON store (if any) so users
   // with a partial config don't have to retype.
-  if (window.electronAPI && window.electronAPI.getFirstRunStatus) {
-    window.electronAPI.getFirstRunStatus().then((s) => {
+  if (window.electronAPI && window.electronAPI.getSettings) {
+    window.electronAPI.getSettings().then((s) => {
       if (!s) return;
-      // Mirror active provider + any pre-existing keys
+      // Load the actual fields, not just an "already configured" placeholder.
+      // Otherwise continuing the wizard overwrites existing keys with blanks.
+      Object.keys(state.providers).forEach((pid) => {
+        if (s.providers && s.providers[pid]) {
+          state.providers[pid] = { ...state.providers[pid], ...s.providers[pid] };
+        }
+      });
       if (s.activeProvider && state.providers[s.activeProvider]) {
         state.activeProvider = s.activeProvider;
         providerSelect.value = state.activeProvider;
       }
-      if (s.activeConfigured) {
-        state.geminiConfigured = true;
+      stateToInputs();
+      state.providerSettingsLoaded = true;
+      providerFormElements.forEach((input) => { input.disabled = false; });
+      if (state.providers[state.activeProvider].apiKey) {
         setKeyStatus('success', '已配置 —— 点击继续');
-        // Show "configured" placeholder on each API key field
-        Object.keys(providerInputs).forEach((pid) => {
-          const apiKeyEl = providerInputs[pid] && providerInputs[pid].apiKey;
-          if (apiKeyEl) apiKeyEl.placeholder = '••••••••••••••••（已设置）';
-        });
       }
       refreshProviderVisibility();
-    }).catch(() => {});
+    }).catch(() => setKeyStatus('error', '读取已有配置失败，请重新打开应用。'));
   }
 })();

@@ -8,6 +8,7 @@
     "start": "electron .",
     "dev": "electron . --no-sandbox",
     "test-speech": "node scripts/test-speech.js",
+    "test-provider-config": "node scripts/test-provider-config.js",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",

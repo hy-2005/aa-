@@ -2,6 +2,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const logger = {
         info: (...args) => console.log('[SettingsWindowUI]', ...args)
     };
+    let settingsLoaded = false;
+    const providerFields = {
+        geminiKey: ['gemini', 'apiKey'],
+        geminiModel: ['gemini', 'model'],
+        openaiKey: ['openai', 'apiKey'],
+        openaiModel: ['openai', 'model'],
+        openaiCompatKey: ['openai-compatible', 'apiKey'],
+        openaiCompatModel: ['openai-compatible', 'model'],
+        openaiCompatBaseUrl: ['openai-compatible', 'baseUrl']
+    };
+    const providerElements = [...Object.keys(providerFields), 'activeProvider']
+        .map((id) => document.getElementById(id)).filter(Boolean);
+    providerElements.forEach((input) => { input.disabled = true; });
 
     // Get DOM elements
     const closeButton = document.getElementById('closeButton');
@@ -79,6 +92,11 @@ document.addEventListener('DOMContentLoaded', () => {
         testLlmBtn.addEventListener('click', async () => {
             testStatus.textContent = '测试中…';
             try {
+                const saved = await saveSettings({ saveActiveProvider: true });
+                if (saved && saved.success === false) {
+                    testStatus.textContent = '✗ ' + saved.error;
+                    return;
+                }
                 if (window.electronAPI && window.electronAPI.testGeminiConnection) {
                     const r = await window.electronAPI.testGeminiConnection();
                     if (r && r.success) {
@@ -176,6 +194,8 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSettingsIntoUI = function(settings) {
         _origLoadSettings(settings);
         populateProviderFields(settings);
+        settingsLoaded = true;
+        providerElements.forEach((input) => { input.disabled = false; });
     };
 
     // Load settings when window opens
@@ -199,7 +219,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Save settings helper function
-    const saveSettings = () => {
+    const saveSettings = (event) => {
+        if (!settingsLoaded) {
+            return Promise.resolve({ success: false, error: '设置仍在加载，请稍后再试。' });
+        }
         const settings = {};
         if (speechProviderSelect) settings.speechProvider = speechProviderSelect.value;
         if (azureKeyInput) settings.azureKey = azureKeyInput.value;
@@ -216,33 +239,32 @@ document.addEventListener('DOMContentLoaded', () => {
         if (codingLanguageSelect) settings.codingLanguage = codingLanguageSelect.value;
         if (activeSkillSelect) settings.activeSkill = activeSkillSelect.value;
 
-        // ── Provider config ──
+        // Ordinary field blur must never submit empty/stale provider forms.
+        // Send only the model field actually edited, or an explicit switch.
         const ap = document.getElementById('activeProvider');
-        if (ap) settings.activeProvider = ap.value;
-        settings.providers = {
-            gemini: {
-                apiKey:  (document.getElementById('geminiKey')   || {}).value || '',
-                model:   (document.getElementById('geminiModel') || {}).value || ''
-            },
-            openai: {
-                apiKey:  (document.getElementById('openaiKey')   || {}).value || '',
-                model:   (document.getElementById('openaiModel') || {}).value || ''
-            },
-            'openai-compatible': {
-                apiKey:  (document.getElementById('openaiCompatKey')     || {}).value || '',
-                model:   (document.getElementById('openaiCompatModel')  || {}).value || '',
-                baseUrl: (document.getElementById('openaiCompatBaseUrl')|| {}).value || ''
-            }
-        };
+        const edited = providerFields[event && event.target && event.target.id];
+        if (edited) {
+            const [pid, field] = edited;
+            settings.providers = { [pid]: { [field]: event.target.value.trim() } };
+            if (ap) settings.activeProvider = ap.value;
+        } else if (event && event.saveActiveProvider && ap) {
+            settings.activeProvider = ap.value;
+            settings.providers = { [ap.value]: {} };
+            Object.entries(providerFields).forEach(([id, [pid, field]]) => {
+                if (pid === ap.value) settings.providers[pid][field] = document.getElementById(id).value.trim();
+            });
+        } else if (event && event.target === ap) {
+            settings.activeProvider = ap.value;
+        }
 
         // Prefer the invoke bridge so we get the save result back and can
         // tell the user when a provider switch was rejected (e.g. no key
         // for the newly selected provider). Fire-and-forget made these
         // failures invisible, which looked like "settings never save".
         if (window.electronAPI && window.electronAPI.saveSettings) {
-            window.electronAPI.saveSettings(settings).then((r) => {
+            return window.electronAPI.saveSettings(settings).then((r) => {
                 const saveStatus = document.getElementById('saveStatus');
-                if (!saveStatus) return;
+                if (!saveStatus) return r;
                 if (r && r.success === false && r.error) {
                     saveStatus.textContent = '⚠ ' + r.error;
                 } else {
@@ -250,8 +272,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 clearTimeout(saveStatus._timer);
                 saveStatus._timer = setTimeout(() => { saveStatus.textContent = ''; }, 6000);
-            }).catch(() => {
-                window.api.send('save-settings', settings);
+                return r;
+            }).catch((e) => {
+                const error = '保存失败：' + e.message;
+                const saveStatus = document.getElementById('saveStatus');
+                if (saveStatus) saveStatus.textContent = error;
+                return { success: false, error };
             });
         } else {
             window.api.send('save-settings', settings);
@@ -299,17 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
         whisperCaptureModeSelect,
         whisperResponseTargetSelect,
         whisperSegmentMsInput,
-        geminiKeyInput,
         windowGapInput,
-        // ── Multi-provider fields: missing listeners were the root cause of
-        //    the "selecting models hangs the app" symptom — typing into these
-        //    fields or changing the dropdown used to do nothing, leaving the
-        //    router pointing at the wrong provider. ──
-        document.getElementById('openaiKey'),
-        document.getElementById('openaiModel'),
-        document.getElementById('openaiCompatKey'),
-        document.getElementById('openaiCompatModel'),
-        document.getElementById('openaiCompatBaseUrl')
     ];
 
     inputs.forEach(input => {
@@ -317,6 +333,10 @@ document.addEventListener('DOMContentLoaded', () => {
             input.addEventListener('change', saveSettings);
             input.addEventListener('blur', saveSettings);
         }
+    });
+    Object.keys(providerFields).forEach((id) => {
+        const input = document.getElementById(id);
+        if (input) input.addEventListener('change', saveSettings);
     });
 
     if (speechProviderSelect) {
@@ -332,7 +352,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (activeProviderSelect) {
         activeProviderSelect.addEventListener('change', () => {
             refreshProviderFieldVisibility(activeProviderSelect.value);
-            saveSettings();
+            saveSettings({ target: activeProviderSelect });
         });
     }
 
