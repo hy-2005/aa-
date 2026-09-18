@@ -520,6 +520,13 @@ class ApplicationController {
       "CommandOrControl+Down": () => windowManager.moveBoundWindows(0, 20),
       "CommandOrControl+Left": () => windowManager.moveBoundWindows(-20, 0),
       "CommandOrControl+Right": () => windowManager.moveBoundWindows(20, 0),
+      // Scroll the AI-response window's content panel without
+      // touching the mouse. Step = one notch (~120px) per press; the
+      // window itself doesn't move, only the content inside scrolls.
+      // Useful while watching a streamed response during a live
+      // interview / proctored session.
+      "CommandOrControl+Shift+Up": () => windowManager.scrollLLMWindow('up'),
+      "CommandOrControl+Shift+Down": () => windowManager.scrollLLMWindow('down'),
     };
 
     // Two-pass register: try every accelerator, but if one is owned by

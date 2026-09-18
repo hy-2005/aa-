@@ -2097,6 +2097,35 @@ class WindowManager {
   }
 
   /**
+   * Scroll the AI-response window's content panel up or down by one
+   * "notch" (~120px). Driven by Ctrl+Shift+Up / Ctrl+Shift+Down so the
+   * user can scrub through a long streamed response without ever
+   * touching the mouse — useful while watching the response stream in
+   * during a live interview / proctored session.
+   *
+   * Implementation note: the actual scroll happens in the renderer
+   * (the renderer's `scrollableElements` array knows which panels to
+   * move), so we just hand off an IPC message. We deliberately do NOT
+   * steal focus on the LLM window before scrolling — focusable:false
+   * keeps it out of the OS focus chain, so proctoring software still
+   * doesn't see a focus loss on the user's browser.
+   *
+   * `direction`: 'up' to scroll toward earlier content, 'down' to scroll
+   * toward newer content. Anything else is a silent no-op (defensive
+   * against future callers passing typos).
+   */
+  scrollLLMWindow(direction) {
+    if (this.isStealthMode) return; // Hidden = no scroll either
+    if (direction !== 'up' && direction !== 'down') return;
+    const llmWindow = this.windows.get('llmResponse');
+    if (!llmWindow || llmWindow.isDestroyed()) return;
+    if (!llmWindow.webContents || llmWindow.webContents.isDestroyed()) return;
+    try {
+      llmWindow.webContents.send('llm-scroll', { direction });
+    } catch (_) { /* ignore — same shape as other send() calls in here */ }
+  }
+
+  /**
    * Step overlay-window opacity for the Alt+= / Alt+- shortcuts.
    * Applies to the stealth overlay windows only (main / chat / llmResponse);
    * framed dialogs (settings / onboarding) keep full opacity.

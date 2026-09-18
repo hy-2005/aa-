@@ -533,6 +533,35 @@
                     showLoadingState();
                 });
 
+                // Ctrl+Shift+Up / Ctrl+Shift+Down → scroll the AI-response
+                // content panel up or down by one notch (~120px) so the
+                // user can scrub through a streamed response without ever
+                // touching the mouse. We iterate every scrollable
+                // element tracked in `scrollableElements` (split layout
+                // has two of them — text panel + code panel; full layout
+                // has one). The window does NOT move, only the content
+                // inside scrolls.
+                if (window.electronAPI.onScrollLlmResponse) {
+                    window.electronAPI.onScrollLlmResponse((_, payload) => {
+                        const dir = payload && payload.direction;
+                        if (dir !== 'up' && dir !== 'down') return;
+                        const step = 120; // one notch
+                        scrollableElements.forEach((el) => {
+                            if (!el) return;
+                            // `up` reduces scrollTop (toward earlier
+                            // content), `down` increases it. Clamp at
+                            // [0, scrollHeight - clientHeight] so a
+                            // long press that overruns the bounds
+                            // doesn't leave the panel jittering.
+                            const max = el.scrollHeight - el.clientHeight;
+                            const next = dir === 'up'
+                                ? Math.max(0, el.scrollTop - step)
+                                : Math.min(max, el.scrollTop + step);
+                            el.scrollTop = next;
+                        });
+                    });
+                }
+
                 // Surface LLM / OCR errors in the window instead of letting
                 // main.js hide it in hideLLMResponse() — users reported
                 // "nothing pops up" because the window was being hidden
