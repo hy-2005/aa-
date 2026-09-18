@@ -556,7 +556,17 @@ class WindowManager {
         titleBarStyle: 'hidden',
         transparent: true,
         backgroundColor: '#00000000',
-        resizable: true,
+        // resizable: false — the AI response has no manual drag-resize
+        // affordance, so `resizable: true` only invited an accidental
+        // bug: when the user dragged the top edge of the AI response
+        // upward toward the screen's top boundary, the window would
+        // grow taller on each pixel of drag (top edge moves up, bottom
+        // edge stays fixed). Repeated dragging — i.e. moving toward the
+        // top boundary — stretched the panel out of the layout the user
+        // intended. The documented way to resize this window is
+        // Ctrl+[ / Ctrl+] (programmatic setContentSize in
+        // stepOverlayWindowSize), which is unaffected by this flag.
+        resizable: false,
         minimizable: false,
         maximizable: false,
         closable: false,
