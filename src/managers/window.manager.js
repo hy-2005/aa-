@@ -161,7 +161,7 @@ class WindowManager {
         maxHeight: 600,
         useContentSize: true,
         file: 'index.html',
-        title: 'OpenCluely'
+        title: 'windows个人助手'
       },
       chat: {
         width: 500,
@@ -244,7 +244,7 @@ class WindowManager {
         width: 560,
         height: 680,
         file: 'onboarding.html',
-        title: 'Welcome to OpenCluely',
+        title: '欢迎使用 windows个人助手',
         frame: false,
         titleBarStyle: 'hidden',
         transparent: true,

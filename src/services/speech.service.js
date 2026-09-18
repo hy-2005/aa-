@@ -1139,7 +1139,7 @@ class SpeechService extends EventEmitter {
       const probe = spawnSync(
         this.whisperCommand.command,
         [...this.whisperCommand.baseArgs, '--help'],
-        { encoding: 'utf8', timeout: 10000 }
+        { encoding: 'utf8', timeout: 10000, windowsHide: true }
       );
       if (probe.error || probe.status !== 0) {
         const err = probe.error ? probe.error.message : `exit code ${probe.status}`;
@@ -1358,13 +1358,13 @@ class SpeechService extends EventEmitter {
         ? path.normalize(configuredPython)
         : path.resolve(configuredPython);
       if (fs.existsSync(resolvedPython)) {
-        return resolvedPython;
+        return this._preferPythonw(resolvedPython);
       }
     }
 
     const userDataCandidate = this._getUserDataWhisperCandidate();
     if (userDataCandidate && fs.existsSync(userDataCandidate.command)) {
-      return userDataCandidate.command;
+      return this._preferPythonw(userDataCandidate.command);
     }
 
     if (!this.whisperCommand) {
@@ -1378,12 +1378,40 @@ class SpeechService extends EventEmitter {
       this.whisperCommand.baseArgs[moduleIndex + 1] === 'whisper' &&
       fs.existsSync(command)
     ) {
-      return command;
+      return this._preferPythonw(command);
     }
 
     const pythonName = process.platform === 'win32' ? 'python.exe' : 'python';
     const siblingPython = path.join(path.dirname(command), pythonName);
-    return fs.existsSync(siblingPython) ? siblingPython : null;
+    if (fs.existsSync(siblingPython)) return this._preferPythonw(siblingPython);
+
+    // Fallback for setups where we only have python.exe (no `python` on PATH):
+    // try `python` on PATH, then `python3`, before giving up.
+    if (process.platform === 'win32') {
+      const probe = spawnSync('where', ['python'], { windowsHide: true, encoding: 'utf8' });
+      const first = (probe.stdout || '').split(/\r?\n/).find(l => /\.exe$/i.test(l));
+      if (first && fs.existsSync(first.trim())) return this._preferPythonw(first.trim());
+    } else {
+      const probe = spawnSync('which', ['python3'], { encoding: 'utf8' });
+      const first = (probe.stdout || '').split(/\r?\n/)[0];
+      if (first && fs.existsSync(first.trim())) return first.trim();
+    }
+    return null;
+  }
+
+  // On Windows, prefer pythonw.exe (GUI subsystem) over python.exe (console
+  // subsystem) so the persistent Whisper worker doesn't flash a black
+  // console window while it loads torch + whisper on first use. pythonw is
+  // always installed alongside python in the standard CPython distribution.
+  _preferPythonw(pythonExe) {
+    if (process.platform !== 'win32') return pythonExe;
+    if (!pythonExe || !/\.exe$/i.test(pythonExe)) return pythonExe;
+    const dir = path.dirname(pythonExe);
+    const base = path.basename(pythonExe);
+    if (base.toLowerCase() === 'pythonw.exe') return pythonExe;
+    const pythonw = path.join(dir, 'pythonw.exe');
+    if (fs.existsSync(pythonw)) return pythonw;
+    return pythonExe;
   }
 
   _getWhisperWorkerScriptPath() {
@@ -1946,7 +1974,12 @@ class SpeechService extends EventEmitter {
     try {
       await new Promise((resolve, reject) => {
         const child = spawn(this.whisperCommand.command, args, {
-          stdio: ['ignore', 'pipe', 'pipe']
+          stdio: ['ignore', 'pipe', 'pipe'],
+          // Windows: Whisper CLI is a console-subsystem binary. Without
+          // windowsHide a black cmd window flashes for ~1s every time we
+          // run a transcription. Hide it across all platforms (no-op on
+          // macOS / Linux).
+          windowsHide: true,
         });
 
         let stderr = '';

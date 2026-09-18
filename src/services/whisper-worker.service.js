@@ -81,7 +81,12 @@ class WhisperWorkerService {
     this.closing = false;
     const child = spawn(this.pythonPath, ['-u', this.scriptPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true
+      // The Whisper worker is a long-lived Python child that prints JSONL
+      // over stdout (so python.exe, not pythonw). On Windows that gives us
+      // the console subsystem and would flash a black cmd window while
+      // Python is loading torch + whisper. windowsHide hides it on every
+      // platform (no-op on macOS / Linux).
+      windowsHide: true,
     });
     this.process = child;
 

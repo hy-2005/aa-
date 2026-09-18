@@ -55,7 +55,7 @@ function formatEnvValue(raw) {
 // exhaust the X11 client limit, producing "Maximum number of clients reached".
 //
 // Disabling hardware acceleration and the GPU subprocess forces Chromium to
-// render via the CPU (SwiftShader). OpenCluely's UI is light enough that
+// render via the CPU (SwiftShader). windows个人助手's UI is light enough that
 // this is imperceptible on Linux, and it eliminates the GPU crash entirely.
 //
 // Windows intentionally keeps GPU acceleration enabled. Transparent frameless
@@ -204,7 +204,7 @@ class ApplicationController {
 
     // Window configurations for reference
     this.windowConfigs = {
-      main: { title: "OpenCluely" },
+      main: { title: "windows个人助手" },
       chat: { title: "Chat" },
       llmResponse: { title: "AI Response" },
       settings: { title: "Settings" },
@@ -489,6 +489,11 @@ class ApplicationController {
       "CommandOrControl+Shift+C": () => windowManager.switchToWindow("chat"),
       "CommandOrControl+Shift+\\": () => this.clearSessionMemory(),
       "CommandOrControl+,": () => windowManager.showSettings(),
+      // Hard quit — bypasses hide-on-close / stealth mode entirely.
+      // Needed because Ctrl+Shift+V only hides the windows; if the user
+      // wants the process to actually exit (no tray icon, no scheduler),
+      // they press this. Uses Ctrl+Alt+Q which is rarely bound system-wide.
+      "CommandOrControl+Alt+Q": () => this.quitAppForReal(),
       // Stealth mode — privacy / anti-proctor. Ctrl+Shift+H flips
       // every overlay off and pauses every background timer; another
       // press flips them back. Auto-engages when a known screen-share /
@@ -1819,6 +1824,28 @@ class ApplicationController {
   onWindowAllClosed() {
     if (process.platform !== "darwin") {
       app.quit();
+    }
+  }
+
+  // True process exit. Used by the Ctrl+Alt+Q global shortcut (and the
+  // main-window "退出" menu item). Tears down the Whisper worker,
+  // screen-recorder watcher, all windows, and forces the process to
+  // terminate even if any child is still alive.
+  quitAppForReal() {
+    logger.info("Hard quit requested");
+    try {
+      // Mark intent so background services stop reconnecting.
+      this._hardQuitting = true;
+      // Kill the persistent Whisper worker before app.quit so we don't
+      // wait for python.exe to die on its own.
+      try { speechService.shutdown && speechService.shutdown(); } catch (_) {}
+      try { windowManager.stopScreenRecorderWatcher(); } catch (_) {}
+      try { windowManager.destroyAllWindows(); } catch (_) {}
+      try { globalShortcut.unregisterAll(); } catch (_) {}
+    } finally {
+      // app.exit(code) is synchronous and bypasses window-all-closed
+      // guards — guaranteed to terminate within ~100ms.
+      app.exit(0);
     }
   }
 

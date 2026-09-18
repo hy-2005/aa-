@@ -1,7 +1,8 @@
 {
-  "name": "opencluely",
+  "name": "windows-personal-assistant",
+  "productName": "windows个人助手",
   "version": "1.0.0",
-  "description": "AI Problem Solving Assistant",
+  "description": "隐形的 AI 面试/笔试助手",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -48,8 +49,8 @@
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.opencluely.app",
-    "productName": "OpenCluely",
+    "appId": "com.windows-personal-assistant.app",
+    "productName": "windows个人助手",
     "directories": {
       "output": "dist"
     },
@@ -103,18 +104,17 @@
         {
           "target": "nsis",
           "arch": [
-            "x64",
-            "ia32"
+            "x64"
           ]
         },
         {
           "target": "portable",
           "arch": [
-            "x64",
-            "ia32"
+            "x64"
           ]
         }
       ],
+      "icon": "assests/icons/app-icon.ico",
       "sign": null
     },
     "linux": {
@@ -164,10 +164,14 @@
       "perMachine": false,
       "include": "scripts/post-install-nsis.nsh",
       "deleteAppDataOnUninstall": false,
-      "artifactName": "OpenCluely-Setup-${version}.${ext}"
+      "runAfterFinish": false,
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}-${arch}.${ext}"
     },
     "dmg": {
-      "title": "OpenCluely Interview Assistant",
+      "title": "windows个人助手",
       "backgroundColor": "#000000",
       "window": {
         "width": 600,
