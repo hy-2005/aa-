@@ -68,9 +68,12 @@ app.whenReady().then(async () => {
 
   await wc.executeJavaScript(`document.getElementById('heroCtaBtn').click(); 'ok'`);
   await new Promise((r) => setTimeout(r, 400));
+  // 服务商下拉框已移除（固定 openai-compatible）；旧脚本里的切换步骤仅在
+  // 元素存在时执行，保持对新旧两版页面都能跑。
   await wc.executeJavaScript(`
     (() => {
       const sel = document.getElementById('activeProvider');
+      if (!sel) return 'fixed-provider';
       sel.value = 'openai-compatible';
       sel.dispatchEvent(new Event('change', { bubbles: true }));
       return 'switched';
@@ -107,7 +110,10 @@ app.whenReady().then(async () => {
     key: document.getElementById('openaiCompatKey').value,
     model: document.getElementById('openaiCompatModel').value,
     base: document.getElementById('openaiCompatBaseUrl').value,
-    provider: document.getElementById('activeProvider').value,
+    // 服务商下拉框已移除（固定 openai-compatible）；存在时才读取，向后兼容
+    provider: document.getElementById('activeProvider')
+      ? document.getElementById('activeProvider').value
+      : 'openai-compatible',
   }))()`);
   log(`RESTORED ${JSON.stringify(restored)}`);
   const okRestore = restored.provider === 'openai-compatible'

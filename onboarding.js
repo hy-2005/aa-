@@ -63,7 +63,10 @@
   // ── State ─────────────────────────────────────────────────────────
   const state = {
     step: 0,
-    activeProvider: 'gemini',  // 'gemini' | 'openai' | 'openai-compatible'
+    // 引导页固定走 OpenAI 兼容配置（按用户要求去掉了 Gemini / OpenAI 选项
+    // 与服务商下拉框）；gemini/openai 两个 key 保留只是为了与主进程
+    // saveSettings 的 providers 结构兼容，界面不再出现。
+    activeProvider: 'openai-compatible',
     providers: {
       gemini: { apiKey: '', model: 'gemini-3.1-flash-lite' },
       openai: { apiKey: '', model: 'gpt-4o-mini' },
@@ -161,19 +164,11 @@
       case 'welcome':
         return true;
       case 'apikey': {
+        // 引导页固定 openai-compatible：三项凭据都填齐才能继续
         if (!state.providerSettingsLoaded) return false;
-        const p = state.providers[state.activeProvider];
+        const p = state.providers['openai-compatible'];
         if (!p) return false;
-        if (state.activeProvider === 'gemini') {
-          return !!p.apiKey.trim();
-        }
-        if (state.activeProvider === 'openai') {
-          return !!p.apiKey.trim();
-        }
-        if (state.activeProvider === 'openai-compatible') {
-          return !!p.apiKey.trim() && !!p.model.trim() && !!p.baseUrl.trim();
-        }
-        return false;
+        return !!p.apiKey.trim() && !!p.model.trim() && !!p.baseUrl.trim();
       }
       case 'speech':
         if (state.speechProvider === 'azure') {
@@ -193,16 +188,17 @@
   }
 
   // ── Wire up: AI Provider config (apikey screen) ──────────────────
-  const providerSelect = $('#activeProvider');
+  // 引导页已固定为 OpenAI 兼容配置：服务商下拉框（#activeProvider）与
+  // Gemini / OpenAI 字段组按用户要求移除，只保留 openai-compatible。
   const providerGroups = $$('.provider-fields');
   const providerHint = $('#providerHint');
-  const providerKeyLink = $('#providerKeyLink');
   const keyStatus = $('#keyStatus');
 
   // Per-provider field refs (looked up at boot so we can read/write them)
+  // gemini / openai 的 DOM 已删，这里保留 null 占位以兼容 providers 结构
   const providerInputs = {
-    gemini: { apiKey: $('#geminiKey'), model: $('#geminiModel'), baseUrl: null },
-    openai: { apiKey: $('#openaiKey'), model: $('#openaiModel'), baseUrl: null },
+    gemini: { apiKey: null, model: null, baseUrl: null },
+    openai: { apiKey: null, model: null, baseUrl: null },
     'openai-compatible': {
       apiKey: $('#openaiCompatKey'),
       model: $('#openaiCompatModel'),
@@ -210,29 +206,9 @@
     },
   };
 
-  // "Where to get a key" hint per provider
+  // 提示文案：HTML 里的静态 hint 已经是最终内容，这里仅在需要时兜底更新
   const providerHints = {
-    gemini: {
-      url: 'https://aistudio.google.com/apikey',
-      label: 'aistudio.google.com/apikey',
-      html:
-        '还没有密钥？去 ' +
-        '<a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">' +
-        'aistudio.google.com/apikey</a> 免费获取。密钥仅保存在本地，' +
-        '只会发送给 Google。',
-    },
-    openai: {
-      url: 'https://platform.openai.com/api-keys',
-      label: 'platform.openai.com/api-keys',
-      html:
-        '还没有密钥？去 ' +
-        '<a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">' +
-        'platform.openai.com/api-keys</a> 创建。密钥仅保存在本地，' +
-        '只会发送给 OpenAI。',
-    },
     'openai-compatible': {
-      url: 'https://platform.minimaxi.com',
-      label: 'MiniMax 开放平台',
       html:
         '接口地址取决于你的服务商（例如 MiniMax 为 <code>https://api.minimax.cn/v1</code>，DeepSeek 为 <code>https://api.deepseek.com/v1</code>）。' +
         '密钥仅保存在本地，只会发送给你填写的接口地址。',
@@ -260,13 +236,8 @@
     providerGroups.forEach((g) => {
       g.style.display = g.dataset.provider === state.activeProvider ? '' : 'none';
     });
-    if (providerHint && providerKeyLink) {
-      const hint = providerHints[state.activeProvider];
-      if (hint) {
-        providerKeyLink.href = hint.url;
-        providerKeyLink.textContent = hint.label;
-        providerHint.innerHTML = hint.html;
-      }
+    if (providerHint && providerHints[state.activeProvider]) {
+      providerHint.innerHTML = providerHints[state.activeProvider].html;
     }
   }
 
@@ -319,20 +290,7 @@
   // 用户就看到一个永远锁住的"配置 AI 服务商"步骤 —— 表现为按不动、
   // 界面在 disabled 状态之间反复切换时还会有"闪烁"感。HTML 已经设了
   // autocomplete="off"，这里没必要再人为禁用。
-
-  // Provider change handler
-  providerSelect.addEventListener('change', () => {
-    // Sync current provider's inputs back to state before switching
-    inputsToState();
-    state.activeProvider = providerSelect.value;
-    // Clear status pill when switching providers (so old test doesn't linger)
-    if (keyStatus) {
-      keyStatus.style.display = 'none';
-      keyStatus.classList.remove('success');
-    }
-    refreshProviderVisibility();
-    scheduleDraftSave();
-  });
+  // （服务商切换监听已随下拉框一起移除：引导页固定 openai-compatible。）
 
   // Per-field input listeners (mirror to state, manage status pill on key entry)
   Object.keys(providerInputs).forEach((pid) => {
@@ -376,7 +334,6 @@
 
   // Initial UI sync
   stateToInputs();
-  providerSelect.value = state.activeProvider;
   refreshProviderVisibility();
 
   // ── Wire up: Speech choices ───────────────────────────────────────
@@ -642,9 +599,9 @@
       (!isOpenAICompat || (activeP.model && activeP.model.trim() && activeP.baseUrl && activeP.baseUrl.trim()))
     );
     rows.push({
-      label: `<i class="fas fa-key"></i> AI 服务商（${state.activeProvider}）`,
-      value: (activeConfigured || state.geminiConfigured) ? '已配置' : '未配置',
-      cls: (activeConfigured || state.geminiConfigured) ? 'ok' : 'skip',
+      label: '<i class="fas fa-key"></i> AI 服务（OpenAI 兼容）',
+      value: activeConfigured ? '已配置' : '未配置',
+      cls: activeConfigured ? 'ok' : 'skip',
     });
     if (state.speechProvider === 'whisper') {
       rows.push({
@@ -706,12 +663,7 @@
     if (!canAdvance()) {
       // Lightly nudge the user
       if (name === 'apikey') {
-        const hintByProvider = {
-          gemini: '请输入 Gemini API 密钥',
-          openai: '请输入 OpenAI API 密钥',
-          'openai-compatible': '请填写密钥、模型和接口地址',
-        };
-        setKeyStatus('error', hintByProvider[state.activeProvider] || '请填写服务商凭据');
+        setKeyStatus('error', '请填写密钥、模型和接口地址');
       }
       return;
     }
@@ -883,9 +835,10 @@
           state.providers[pid] = { ...state.providers[pid], ...s.providers[pid] };
         }
       });
+      // 引导页固定 openai-compatible：已存配置 / 草稿里哪怕记录的是
+      // gemini / openai，也只回填凭据字段，不改变服务商选择。
       if (s.activeProvider && state.providers[s.activeProvider]) {
-        state.activeProvider = s.activeProvider;
-        providerSelect.value = state.activeProvider;
+        state.activeProvider = 'openai-compatible';
       }
       // 草稿回填：草稿是用户敲到一半的最新输入（比 providers json 新），
       // 存在草稿时覆盖上面的合并结果 —— 应用中途退出/重启后，已输入的
@@ -897,9 +850,8 @@
             state.providers[pid] = { ...state.providers[pid], ...draft.providers[pid] };
           }
         });
-        if (draft.activeProvider && state.providers[draft.activeProvider]) {
-          state.activeProvider = draft.activeProvider;
-          providerSelect.value = state.activeProvider;
+        if (draft.activeProvider === 'openai-compatible') {
+          state.activeProvider = 'openai-compatible';
         }
         if (draft.speechProvider) {
           state.speechProvider = draft.speechProvider;

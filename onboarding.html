@@ -784,96 +784,16 @@
 
             <!-- SCREEN 2: Configure AI Provider -->
             <section class="screen" data-screen="apikey">
-                <h1>配置 AI 服务商</h1>
+                <h1>配置 AI 服务</h1>
                 <p class="subtitle">
-                    选择你的大模型服务商并填写凭据。之后可以随时在「设置」中修改。
+                    填写 OpenAI 兼容服务的凭据（MiniMax / DeepSeek / Ollama 等都适用）。
+                    之后可以随时在「设置」中修改。
                 </p>
 
-                <div class="field">
-                    <label for="activeProvider">AI 服务商</label>
-                    <div class="select-wrap">
-                        <i class="fas fa-robot icon"></i>
-                        <select id="activeProvider" class="input provider-select">
-                            <option value="gemini">Google Gemini</option>
-                            <option value="openai">OpenAI</option>
-                            <option value="openai-compatible">OpenAI 兼容（MiniMax / DeepSeek / Ollama / 自定义）</option>
-                        </select>
-                        <i class="fas fa-chevron-down select-caret"></i>
-                    </div>
-                </div>
-
-                <!-- Gemini -->
-                <div class="field provider-fields" data-provider="gemini">
-                    <div class="field">
-                        <label for="geminiKey">Gemini API 密钥</label>
-                        <div class="input-wrap">
-                            <i class="fas fa-key icon"></i>
-                            <input
-                                type="password"
-                                id="geminiKey"
-                                class="input"
-                                placeholder="AIza…"
-                                autocomplete="off"
-                                spellcheck="false"
-                            >
-                            <button class="toggle-vis" data-toggle="geminiKey" type="button" title="显示 / 隐藏">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                        </div>
-                    </div>
-                    <div class="field">
-                        <label for="geminiModel">Gemini 模型</label>
-                        <div class="input-wrap">
-                            <i class="fas fa-microchip icon"></i>
-                            <input
-                                type="text"
-                                id="geminiModel"
-                                class="input"
-                                placeholder="gemini-3.1-flash-lite"
-                                autocomplete="off"
-                                spellcheck="false"
-                            >
-                        </div>
-                    </div>
-                </div>
-
-                <!-- OpenAI -->
-                <div class="field provider-fields" data-provider="openai" style="display:none;">
-                    <div class="field">
-                        <label for="openaiKey">OpenAI API 密钥</label>
-                        <div class="input-wrap">
-                            <i class="fas fa-key icon"></i>
-                            <input
-                                type="password"
-                                id="openaiKey"
-                                class="input"
-                                placeholder="sk-…"
-                                autocomplete="off"
-                                spellcheck="false"
-                            >
-                            <button class="toggle-vis" data-toggle="openaiKey" type="button" title="显示 / 隐藏">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                        </div>
-                    </div>
-                    <div class="field">
-                        <label for="openaiModel">OpenAI 模型</label>
-                        <div class="input-wrap">
-                            <i class="fas fa-microchip icon"></i>
-                            <input
-                                type="text"
-                                id="openaiModel"
-                                class="input"
-                                placeholder="gpt-4o-mini"
-                                autocomplete="off"
-                                spellcheck="false"
-                            >
-                        </div>
-                    </div>
-                </div>
-
-                <!-- OpenAI Compatible -->
-                <div class="field provider-fields" data-provider="openai-compatible" style="display:none;">
+                <!-- 只保留 OpenAI 兼容配置：按用户要求去掉了 Gemini / OpenAI
+                     选项和服务商下拉框（下拉选择在部分环境选不动，直接默认
+                     openai-compatible 最稳）。需要换服务商时去设置窗口。 -->
+                <div class="field provider-fields" data-provider="openai-compatible">
                     <div class="field">
                         <label for="openaiCompatKey">API 密钥</label>
                         <div class="input-wrap">
@@ -923,11 +843,9 @@
 
                 <div class="field">
                     <div class="hint" id="providerHint">
-                        还没有密钥？去
-                        <a id="providerKeyLink" href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
-                            aistudio.google.com/apikey
-                        </a>
-                        免费获取。密钥仅保存在本地，只会发送给你选择的服务商。
+                        接口地址取决于你的服务商（例如 MiniMax 为 https://api.minimax.cn/v1，
+                        DeepSeek 为 https://api.deepseek.com/v1）。
+                        密钥仅保存在本地，只会发送给你填写的接口地址。
                     </div>
                     <div id="keyStatus" class="status-pill idle" style="display:none;">
                         <i class="fas fa-circle-info"></i>
