@@ -39,7 +39,12 @@ class OpenAICompatibleAdapter {
         apiKey: this.apiKey,
         baseURL: this.baseUrl,
         // Keys stay in the main process; Azure globals confuse SDK detection.
-        dangerouslyAllowBrowser: !!process.versions.node && process.type !== 'renderer'
+        dangerouslyAllowBrowser: !!process.versions.node && process.type !== 'renderer',
+        // 网络韧性：连接抖动 / 代理切换时由 SDK 自动做指数退避重试；
+        // 单请求 120s 超时。此前出现的 "Connection error." 经排查为网络瞬断
+        // （同期机器直连 API 实测可达），加固后此类短抖动可自愈。
+        timeout: 120000,
+        maxRetries: 3
       });
       this.isInitialized = true;
       logger.info('OpenAI-compatible client initialized', {

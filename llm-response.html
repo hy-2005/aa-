@@ -26,10 +26,11 @@
         .content-area {
             -webkit-app-region: no-drag;
         }
+        /* 正文默认字号整体调小（用户反馈默认字体太大） */
         .markdown-content {
             line-height: 1.6;
             color: white;
-            font-size: 0.875rem;
+            font-size: 0.8rem;
         }
         .markdown-content h1, .markdown-content h2, .markdown-content h3 {
             margin-top: 1.2rem;
@@ -40,9 +41,9 @@
         .markdown-content h1 { font-size: 1.2rem; }
         .markdown-content h2 { font-size: 1.1rem; }
         .markdown-content h3 { font-size: 1rem; }
-        .markdown-content p { margin-bottom: 0.8rem; color: white; font-size: 0.875rem; }
-        .markdown-content ul, .markdown-content ol { margin-bottom: 0.8rem; padding-left: 1.2rem; font-size: 0.875rem; }
-        .markdown-content li { margin-bottom: 0.4rem; color: white; font-size: 0.875rem; }
+        .markdown-content p { margin-bottom: 0.8rem; color: white; font-size: 0.8rem; }
+        .markdown-content ul, .markdown-content ol { margin-bottom: 0.8rem; padding-left: 1.2rem; font-size: 0.8rem; }
+        .markdown-content li { margin-bottom: 0.4rem; color: white; font-size: 0.8rem; }
         .markdown-content code { 
             background-color: rgba(0, 0, 0, 0.4); 
             padding: 0.2rem 0.4rem; 
@@ -62,6 +63,13 @@
             background-color: transparent; 
             padding: 0; 
             color: #e5e7eb;
+        }
+        /* 统一代码字号：拆分布局的 #code-content 不在 .markdown-content 内，
+           此前落到浏览器默认 16px，是代码字体偏大的主因之一；现在与正文
+           一致缩小（0.78rem ≈ 12.5px，叠加窗口出厂缩放 0.85 后实际约 10.6px） */
+        .code-content pre, .code-content code,
+        .markdown-content pre, .markdown-content pre code {
+            font-size: 0.78rem;
         }
         .markdown-content blockquote {
             border-left: 4px solid #6b7280;

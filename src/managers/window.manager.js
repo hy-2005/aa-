@@ -197,7 +197,9 @@ class WindowManager {
         // widens the panel on demand to fit the widest code line.
         width: 380,
         height: 250,
-        minWidth: 320,
+        // 最小宽度下限对齐主栏（240）：380 起步时 Ctrl+[ 需要多档收缩余量，
+        // 之前 320 只剩 60px 余量、按两下就触底，用户感觉“缩小快捷键没生效”。
+        minWidth: 240,
         minHeight: 20,
         maxWidth: 1400,
         maxHeight: 900,
@@ -781,15 +783,22 @@ class WindowManager {
     // 其余窗口维持 1.0（用户仍可用 Ctrl+]/Ctrl+[ 动态调整，调过之后
     // 以 _currentSizes 里记录的用户值为准）。
     const DEFAULT_ZOOMS = { llmResponse: 0.85 };
-    const initialZoom = (this._currentSizes[type] && this._currentSizes[type].zoom)
+    // 当前窗口生效缩放的统一取值口：用户用 Ctrl+[/] 调过的值（_currentSizes）
+    // 优先，否则用出厂默认。
+    const resolveZoom = () => (this._currentSizes[type] && this._currentSizes[type].zoom)
       || DEFAULT_ZOOMS[type] || 1.0;
-    window.webContents.setZoomFactor(initialZoom);
+    window.webContents.setZoomFactor(resolveZoom());
+    // Chromium 在导航加载完成后会按 host 重新推导缩放系数，创建时设置的
+    // 系数可能被重置（出厂 0.85 不生效、字体看着仍大），加载完成后再补一次。
+    window.webContents.on('did-finish-load', () => {
+      try { window.webContents.setZoomFactor(resolveZoom()); } catch (_) { /* ignore */ }
+    });
     window.webContents.on('before-input-event', (event, input) => {
       if (input.type !== 'keyDown') return;
       const key = (input.key || '').toLowerCase();
       if ((input.control || input.alt) && ['+', '-', '=', '0', '_'].includes(key)) {
         event.preventDefault();
-        window.webContents.setZoomFactor(initialZoom);
+        window.webContents.setZoomFactor(resolveZoom());
       }
     });
 
@@ -819,7 +828,7 @@ class WindowManager {
     // size. Without this the LLM window would pop back up at the default
     // 1280x620 every time, even though the user clearly preferred the
     // larger (or smaller) size they dialled in. The zoom factor is already
-    // applied above via setZoomFactor(initialZoom).
+    // re-applied after load via the did-finish-load setZoomFactor(resolveZoom()).
     if (this._currentSizes[type]) {
       const { w, h } = this._currentSizes[type];
       try {
@@ -2275,7 +2284,12 @@ class WindowManager {
         const maxW = cfg.maxWidth || cfg.width || 1920;
         const maxH = cfg.maxHeight || cfg.height || 1200;
         const [w, h] = win.getContentSize();
-        const newW = Math.max(minW, Math.min(maxW, Math.round(w + delta)));
+        // 步进随当前宽度等比例（约 ±8%，保底 40px）：主栏尺寸下手感与旧的固定
+        // ±40 一致；但 AI 响应窗被代码自动加宽到 1300px+ 后，固定 40px 要按
+        // 20 多下才能缩回紧凑尺寸（用户反馈“缩小快捷键没正常缩小”），
+        // 比例步进恢复“整体缩放”的手感。
+        const step = Math.max(40, Math.round(w * 0.08));
+        const newW = Math.max(minW, Math.min(maxW, Math.round(w + (delta > 0 ? step : -step))));
         // Don't resize height — keeping height constant is what keeps
         // the gap between main and the AI response / queue strip
         // visually fixed across `Ctrl+` / `Ctrl+]` presses. The old
