@@ -3,6 +3,11 @@ const path = require('path');
 const { execFile } = require('child_process');
 const logger = require('../core/logger').createServiceLogger('WINDOW');
 const config = require('../core/config');
+// Win32 原生 Z 序守护：直接调 user32.SetWindowPos + SetWindowLongW，
+// 绕过 Electron 把 WS_EX_TOPMOST 强制写进 OS。解决 Chrome F11 / HTML5
+// fullscreen 状态下 setAlwaysOnTop(true) 被压回的问题。
+// 仅 Windows 有效，其他平台 ensureTopmost 是 no-op，自动降级到 Electron API。
+const nativeGuard = require('./native-window-guard');
 
 // Process-name signatures for apps that either record the screen, mirror
 // it to a remote viewer (interview proctoring), or run anti-cheat that
@@ -161,7 +166,7 @@ class WindowManager {
         maxHeight: 600,
         useContentSize: true,
         file: 'index.html',
-        title: 'windows个人助手'
+        title: '向日葵助手'
       },
       chat: {
         width: 500,
@@ -246,7 +251,7 @@ class WindowManager {
         width: 560,
         height: 680,
         file: 'onboarding.html',
-        title: '欢迎使用 windows个人助手',
+        title: '欢迎使用 向日葵助手',
         frame: false,
         titleBarStyle: 'hidden',
         transparent: true,
@@ -1293,38 +1298,83 @@ class WindowManager {
     const llmWin = this.windows.get('llmResponse');
     const isLLM = llmWin && !llmWin.isDestroyed() && win.id === llmWin.id;
 
-    // Track whether we've ever run the heavy "make this window behave
-    // like an overlay" dance on this window. Subsequent show() calls
-    // take the fast path — just setAlwaysOnTop + show — instead of
-    // waiting on the 50/100/300/500 ms setTimeout chain that introduced
-    // visible lag when the user rapid-fires Ctrl+Alt+S / Ctrl+Alt+D /
-    // Ctrl+Shift+V while main is parked at the top boundary.
-    if (!win._openCluelyShown) {
-      win._openCluelyShown = true;
-      // First-show path: pick up the workspace + always-on-top level
-      // once, and don't pay that cost again.
-      try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch (_) {}
-      if (process.platform === 'darwin') {
-        try {
-          try { win.setAlwaysOnTop(true, 'screen-saver', 2); }
-          catch { try { win.setAlwaysOnTop(true, 'pop-up-menu', 2); }
-          catch { try { win.setAlwaysOnTop(true, 'floating', 2); }
-          catch { win.setAlwaysOnTop(true); }}}
-        } catch (_) { /* ignore */ }
-      }
+    // 每次 show() 都重新打满「穿透全屏 + 置顶 + Z 序顶端」三件套。
+    // 之前只在首次显示时设置一次，fast-path 只做 setAlwaysOnTop(true) + show()，
+    // 在用户常用的「浏览器 F11 全屏 / HTML5 fullscreen 状态下按 Ctrl+Shift+V /
+    // Ctrl+Alt+S / Ctrl+Alt+D」场景里，窗口的 visibleOnFullScreen 属性容易丢失、
+    // Z 序也会被全屏层抢回去，结果就是「按了快捷键但悬浮窗看不见」。
+    //   - macOS：`visibleOnFullScreen: true` + `screen-saver` 层级是唯一能让
+    //     窗口稳定浮在全屏 App 之上的组合，必须每次重新声明；
+    //   - Windows / Linux：`visibleOnFullScreen` 选项被 Electron 忽略（no-op），
+    //     但配合 setAlwaysOnTop(true) + moveTop() 仍能把窗口抬回 Z 序顶层。
+    try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }); } catch (_) {}
+
+    if (process.platform === 'darwin') {
+      // macOS 最高层级是 screen-saver，逐级降级确保至少有一个生效
+      try {
+        try { win.setAlwaysOnTop(true, 'screen-saver', 2); }
+        catch { try { win.setAlwaysOnTop(true, 'pop-up-menu', 2); }
+        catch { try { win.setAlwaysOnTop(true, 'floating', 2); }
+        catch { win.setAlwaysOnTop(true); }}}
+      } catch (_) { /* ignore */ }
+    } else {
+      // Windows / Linux：单纯置顶，配合下面的 moveTop() 把窗口从浏览器全屏
+      // 层下「捞」回顶层
+      try { win.setAlwaysOnTop(true); } catch (_) { /* ignore */ }
     }
 
-    // LLM stays on every workspace so it follows the user when they
-    // switch spaces; everything else is scoped to the current desktop.
-    // This used to be done via a 300/500 ms setTimeout after show() —
-    // doing it synchronously before show() removes that lag without
-    // changing the end state.
+    // moveTop() 显式把窗口拉到 Z 序最顶层但不抢焦点。这是浏览器全屏状态下
+    // 让悬浮窗重新可见的关键一步 —— 单独 setAlwaysOnTop(true) 不足以保证
+    // 窗口盖在浏览器的全屏独占层之上。
+    try { win.moveTop(); } catch (_) { /* ignore */ }
+
+    // LLM 响应窗口停留在所有 workspace（用户在桌面间切换时跟随显示），
+    // 其他窗口固定在当前 desktop（避免在多个 desktop 上同时出现悬浮窗）。
     if (!isLLM) {
       try { win.setVisibleOnAllWorkspaces(false); } catch (_) { /* ignore */ }
     }
 
-    try { win.setAlwaysOnTop(true); } catch (_) { /* ignore */ }
     try { win.show(); } catch (_) { /* ignore */ }
+
+    // 持续守护：浏览器（F11 / HTML5 fullscreen）会周期性重新调整自身 Z 序，
+    // 把我们的 HWND_TOPMOST 窗口压到下面。100ms 一次的 setAlwaysOnTop + moveTop
+    // 在某些浏览器全屏下依然扛不住 —— Electron 自带的 setAlwaysOnTop(true)
+    // 把 WS_EX_TOPMOST 当成 soft flag，某些场景下会被静默覆盖。
+    //
+    // 改用 Win32 原生 API（koffi → user32.dll）做强力 re-assert：
+    //   - SetWindowLongW(GWL_EXSTYLE, ex | WS_EX_TOPMOST)  持久写进 OS
+    //     扩展样式，不被其他 SetWindowPos 调用覆盖；
+    //   - SetWindowPos(HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE |
+    //     SWP_NOACTIVATE)  把窗口拉到 HWND_TOPMOST 层，不抢焦点、不动位置/大小。
+    // 非 Windows 平台 nativeGuard.ensureTopmost 是 no-op，自动降级到
+    // setAlwaysOnTop + moveTop 兜底，保持跨平台行为一致。
+    //
+    // 守护窗口 visible 期间无限持续（直到 hide / destroy / stealth 介入），
+    // 'hide' 事件里另有 clearInterval 处理，避免定时器泄漏到不可见窗口。
+    if (!this.isStealthMode) {
+      if (win._zOrderGuardTimer) {
+        clearInterval(win._zOrderGuardTimer);
+        win._zOrderGuardTimer = null;
+      }
+      win._zOrderGuardTimer = setInterval(() => {
+        if (!win || win.isDestroyed()) {
+          clearInterval(win._zOrderGuardTimer);
+          win._zOrderGuardTimer = null;
+          return;
+        }
+        if (!win.isVisible() || this.isStealthMode) {
+          clearInterval(win._zOrderGuardTimer);
+          win._zOrderGuardTimer = null;
+          return;
+        }
+        // 优先走原生 Win32 API；macOS / Linux 上 ensureTopmost 直接
+        // 返回 false，下面的 setAlwaysOnTop + moveTop 兜底
+        if (!nativeGuard.ensureTopmost(win, logger)) {
+          try { win.setAlwaysOnTop(true); } catch (_) { /* ignore */ }
+          try { win.moveTop(); } catch (_) { /* ignore */ }
+        }
+      }, 100);
+    }
 
     logger.debug('Showing window on current desktop with enhanced always-on-top', {
       platform: process.platform,
@@ -1369,6 +1419,15 @@ class WindowManager {
 
       window.on('hide', () => {
         logger.debug('Window hidden', { type });
+        // 窗口 hide 后立刻停掉 Z 序守护定时器，避免对一个不可见的窗口
+        // 继续每 1 秒 re-assert 一次（白做功 + 留下可被 proctor 软件
+        // 捕捉到的 Z 序抖动）。hideAllWindows() 内部就是逐个 window.hide()，
+        // 这里清掉能覆盖所有 hide 入口（用户按 Ctrl+Shift+V、close 拦截、
+        // hideAllWindows、bringLLMWindowToFront 内部的 hideScreenshotQueue 等）。
+        if (window._zOrderGuardTimer) {
+          clearInterval(window._zOrderGuardTimer);
+          window._zOrderGuardTimer = null;
+        }
       });
 
       // Handle window minimize attempts
@@ -2122,7 +2181,7 @@ class WindowManager {
 
   /**
    * Scroll the AI-response window's content panel up or down by one
-   * "notch" (~120px). Driven by Ctrl+Shift+Up / Ctrl+Shift+Down so the
+   * "notch" (~120px). Driven by Tab+Up / Tab+Down so the
    * user can scrub through a long streamed response without ever
    * touching the mouse — useful while watching the response stream in
    * during a live interview / proctored session.

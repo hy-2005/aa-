@@ -119,7 +119,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onOpenGeminiConfig: (callback) => ipcRenderer.on('open-gemini-config', callback),
   onDisplayLlmResponse: (callback) => ipcRenderer.on('display-llm-response', callback),
   onShowLoading: (callback) => ipcRenderer.on('show-loading', callback),
-  // Ctrl+Shift+Up / Ctrl+Shift+Down — scroll the AI-response content
+  // Tab+Up / Tab+Down — scroll the AI-response content
   // by one notch (~120px) without stealing focus from the browser.
   // Payload: { direction: 'up' | 'down' }.
   onScrollLlmResponse: (callback) => ipcRenderer.on('llm-scroll', callback),

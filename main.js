@@ -55,7 +55,7 @@ function formatEnvValue(raw) {
 // exhaust the X11 client limit, producing "Maximum number of clients reached".
 //
 // Disabling hardware acceleration and the GPU subprocess forces Chromium to
-// render via the CPU (SwiftShader). windows个人助手's UI is light enough that
+// render via the CPU (SwiftShader). 向日葵助手's UI is light enough that
 // this is imperceptible on Linux, and it eliminates the GPU crash entirely.
 //
 // Windows intentionally keeps GPU acceleration enabled. Transparent frameless
@@ -210,7 +210,7 @@ class ApplicationController {
 
     // Window configurations for reference
     this.windowConfigs = {
-      main: { title: "windows个人助手" },
+      main: { title: "向日葵助手" },
       chat: { title: "Chat" },
       llmResponse: { title: "AI Response" },
       settings: { title: "Settings" },
@@ -535,9 +535,12 @@ class ApplicationController {
       // touching the mouse. Step = one notch (~120px) per press; the
       // window itself doesn't move, only the content inside scrolls.
       // Useful while watching a streamed response during a live
-      // interview / proctored session.
-      "CommandOrControl+Shift+Up": () => windowManager.scrollLLMWindow('up'),
-      "CommandOrControl+Shift+Down": () => windowManager.scrollLLMWindow('down'),
+      // interview / proctored session. Hotkey changed from
+      // Ctrl/Cmd+Shift+Up/Down to Tab+Up/Down — Tab 离手最近，
+      // 在浏览器全屏下与 Ctrl/Cmd+Shift 组合不易被 IME / 浏览器吞掉，
+      // globalShortcut 系统级注册会绕过应用拦截。
+      "Tab+Up": () => windowManager.scrollLLMWindow('up'),
+      "Tab+Down": () => windowManager.scrollLLMWindow('down'),
     };
 
     // Two-pass register: try every accelerator, but if one is owned by

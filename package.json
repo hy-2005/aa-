@@ -1,8 +1,8 @@
 {
-  "name": "windows-personal-assistant",
-  "productName": "windows个人助手",
+  "name": "sunflower-assistant",
+  "productName": "向日葵助手",
   "version": "1.0.0",
-  "description": "隐形的 AI 面试/笔试助手",
+  "description": "向日葵助手",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -35,6 +35,7 @@
     "@fortawesome/fontawesome-free": "^7.2.0",
     "@google/genai": "^2.9.0",
     "dotenv": "^16.3.1",
+    "koffi": "^2.16.3",
     "markdown": "^0.5.0",
     "marked": "^15.0.12",
     "microsoft-cognitiveservices-speech-sdk": "^1.40.0",
@@ -50,8 +51,8 @@
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.windows-personal-assistant.app",
-    "productName": "windows个人助手",
+    "appId": "com.sunflower.assistant.app",
+    "productName": "向日葵助手",
     "directories": {
       "output": "dist"
     },
@@ -172,7 +173,7 @@
       "artifactName": "${productName}-Portable-${version}-${arch}.${ext}"
     },
     "dmg": {
-      "title": "windows个人助手",
+      "title": "向日葵助手",
       "backgroundColor": "#000000",
       "window": {
         "width": 600,
