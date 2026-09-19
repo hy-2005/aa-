@@ -70,7 +70,7 @@ or add Azure Speech credentials in Settings.
 
 | Shortcut | Action |
 |---|---|
-| Cmd/Ctrl+Shift+S | Screenshot capture |
+| Cmd/Ctrl+Alt+S | Screenshot capture |
 | Alt+R | Toggle speech recognition |
 | Cmd/Ctrl+Shift+V | Toggle window visibility |
 | Cmd/Ctrl+Shift+I / Alt+A | Toggle click-through interaction |

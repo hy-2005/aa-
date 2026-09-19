@@ -56,13 +56,13 @@
 2. Launch the app. On first run the Settings window opens; paste a free Gemini API key from Google AI Studio.
 3. Optionally configure Whisper (local, offline) or Azure Speech for voice input.
 4. Start your interview on any conferencing tool. The overlay floats above your screen and stays hidden from screen recording.
-5. Ask by voice (mic button or Alt+R) or by screenshot (Cmd/Ctrl+Shift+S). The answer streams in instantly.
+5. Ask by voice (mic button or Alt+R) or by screenshot (Cmd/Ctrl+Alt+S). The answer streams in instantly.
 
 ## Keyboard shortcuts
 
 | Shortcut | Action |
 |---|---|
-| Cmd/Ctrl+Shift+S | Screenshot capture |
+| Cmd/Ctrl+Alt+S | Screenshot capture |
 | Alt+R | Toggle speech recognition |
 | Cmd/Ctrl+Shift+V | Toggle window visibility |
 | Cmd/Ctrl+Shift+I or Alt+A | Toggle click-through interaction |
