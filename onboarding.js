@@ -290,9 +290,13 @@
       if (inputs.baseUrl) inputs.baseUrl.value = p.baseUrl || '';
     });
   }
-  const providerFormElements = [providerSelect, ...Object.values(providerInputs)
-    .flatMap((inputs) => Object.values(inputs)).filter(Boolean)];
-  providerFormElements.forEach((input) => { input.disabled = true; });
+  // 表单项默认就是可用的 —— 不要在 IIFE 顶层先禁用、再依赖 getSettings
+  // 的异步回调里启用。早期版本在 boot 时把所有 input 设 disabled=true，
+  // 然后只在 window.electronAPI.getSettings().then(s => ...) 回调里 enable；
+  // 一旦 getSettings 异步慢、返回 null、或者 IPC 通路异常，回调不执行，
+  // 用户就看到一个永远锁住的"配置 AI 服务商"步骤 —— 表现为按不动、
+  // 界面在 disabled 状态之间反复切换时还会有"闪烁"感。HTML 已经设了
+  // autocomplete="off"，这里没必要再人为禁用。
 
   // Provider change handler
   providerSelect.addEventListener('change', () => {
@@ -858,7 +862,8 @@
       }
       stateToInputs();
       state.providerSettingsLoaded = true;
-      providerFormElements.forEach((input) => { input.disabled = false; });
+      // 表单项已经在 IIFE 顶层默认 enable，这里不再重复操作
+      // disabled —— 避免"disable → enable"的反复切换造成视觉抖动。
       if (state.providers[state.activeProvider].apiKey) {
         setKeyStatus('success', '已配置 —— 点击继续');
       }
