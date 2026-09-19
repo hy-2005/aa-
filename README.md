@@ -1,6 +1,6 @@
 <div align="center">
 
-# OpenCluely
+# OpenCluely二开
 
 **隐形的 AI 面试助手。**
 
