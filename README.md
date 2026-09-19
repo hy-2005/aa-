@@ -152,6 +152,7 @@ cd OpenCluely
 | `Ctrl + Shift + H` | 隐身模式(隐藏全部 overlay 并暂停轮询) |
 | `Ctrl + Shift + T` | 强制所有 overlay 置顶 |
 | `Ctrl + Shift + Alt + T` | 自检所有 overlay 置顶状态 |
+| `Ctrl + Alt + Q` | 彻底退出应用（绕过隐身模式与托盘残留） |
 
 ### ↔️ 浮窗位置与尺寸(唯一会改变窗口位置/尺寸的快捷键)
 
@@ -159,7 +160,7 @@ cd OpenCluely
 |---|---|
 | `Ctrl + ↑ / ↓ / ← / →` | 浮窗 上 / 下 / 左 / 右 移动(20 像素/次) |
 | `Ctrl + [` / `Ctrl + ]` | 整体悬浮窗 缩小 / 放大(主窗、聊天窗、AI 响应一起) |
-| `Ctrl + Shift + ↑ / ↓` | AI 响应内容 上 / 下翻页(窗口不动,只滚内容) |
+| `Tab + ↑ / ↓` | AI 响应内容 上 / 下翻页(窗口不动,只滚内容) |
 
 ### 🎨 透明度
 
@@ -229,7 +230,7 @@ WHISPER_GPU_IDLE_MS=60000
 
 ### 运行时问题
 
-- **AI 响应窗不显示**:确认按了 `Ctrl+Shift+D` 而不是只截图了。检查 Gemini Key 是否在设置中正确填写。
+- **AI 响应窗不显示**:确认按了 `Ctrl+Alt+D` 而不是只截图了。检查 Gemini Key 是否在设置中正确填写。
 - **快捷键不生效**:检查是否有其他应用(如 Snipping Tool、Stream Deck)占用了 `Ctrl+Alt+S/D/X`。
 - **麦克风按钮消失**:未配置任何语音提供商,这是预期行为。去设置里配 Whisper 或 Azure。
 - **屏幕共享时仍能看到 overlay**:确认会议软件的"屏幕共享窗口"选项没有勾选 — 应共享"整个屏幕"或"显示器"。Overlay 用了 `setContentProtection`,只有深度系统级抓屏才会泄漏。
