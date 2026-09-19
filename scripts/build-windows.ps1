@@ -1,4 +1,4 @@
-# Build script: converts assests/icons/02icon.png -> assests/icons/app-icon.ico
+# Build script: converts assests/icons/sunflower.png -> assests/icons/app-icon.ico
 # and produces a Windows NSIS installer + Portable build.
 #
 # Usage (from repo root):
@@ -9,6 +9,15 @@
 #   - node_modules installed (`npm install` already ran via setup.sh)
 
 $ErrorActionPreference = "Stop"
+
+# PowerShell on Windows defaults to the legacy system codepage (GBK on zh-CN
+# systems), which mangles non-ASCII path literals like "向日葵" inside
+# Join-Path. Switch the active codepage to 65001 (UTF-8) BEFORE any string
+# literal with non-ASCII characters is parsed, then also rewire stdout/stderr.
+chcp 65001 | Out-Null
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$env:PYTHONIOENCODING = "utf-8"
 
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 Set-Location $RepoRoot
@@ -31,14 +40,14 @@ try {
   Write-Host ("[enable-symlink] " + $_.Exception.Message) -ForegroundColor Yellow
 }
 
-$SrcPng = Join-Path $RepoRoot "assests/icons/02icon.png"
+$SrcPng = Join-Path $RepoRoot "assests/icons/sunflower.png"
 $OutIco = Join-Path $RepoRoot "assests/icons/app-icon.ico"
 
 if (-not (Test-Path $SrcPng)) {
   throw "Source icon not found: $SrcPng"
 }
 
-Write-Host "[1/3] Converting 02icon.png -> app-icon.ico (multi-size)" -ForegroundColor Cyan
+Write-Host "[1/3] Converting sunflower.png -> app-icon.ico (multi-size)" -ForegroundColor Cyan
 
 Add-Type -AssemblyName System.Drawing
 

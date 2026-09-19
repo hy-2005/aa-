@@ -1,4 +1,4 @@
-﻿# cleanup-temp.ps1 — kill leftover "windows个人助手.exe" processes and
+﻿# cleanup-temp.ps1 — kill leftover "向日葵助手.exe" processes and
 # remove the NSIS staging directories under %LOCALAPPDATA%\Temp that the
 # installer creates while extracting the bundled app.
 #
@@ -10,7 +10,7 @@
 #
 # This script:
 #   1. kills any running process whose executable is named
-#      "windows个人助手.exe" OR whose path lives inside a Temp staging
+#      "向日葵助手.exe" OR whose path lives inside a Temp staging
 #      directory (the only place NSIS puts it),
 #   2. deletes the matching %LOCALAPPDATA%\Temp\<hash>\ directories,
 #   3. leaves every other process alone (no broad "killing everything with
@@ -19,7 +19,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$exeName = "windows个人助手.exe"
+$exeName = "向日葵助手.exe"
 $tempRoots = @(
   (Join-Path $env:LOCALAPPDATA "Temp")
 )
@@ -32,7 +32,7 @@ Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
   $isTarget = $false
   $reason = ""
 
-  if ($name -ieq "windows个人助手") {
+  if ($name -ieq "向日葵助手") {
     $isTarget = $true
     $reason = "process name match"
   } elseif ($path -and $path -like "*Temp*${exeName}") {
@@ -52,7 +52,7 @@ Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
 }
 
 # Remove NSIS staging dirs whose only contents are our extracted exe.
-# Pattern: <tempRoot>\<6+char random>\windows个人助手.exe (possibly with
+# Pattern: <tempRoot>\<6+char random>\向日葵助手.exe (possibly with
 # sibling files from the install).
 $removedDirs = 0
 foreach ($root in $tempRoots) {

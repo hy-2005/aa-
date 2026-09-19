@@ -6,7 +6,7 @@ const os = require('os');
  * First-run detection and onboarding helper.
  *
  * Responsibilities:
- *   - Decide whether this is the user's first launch of windows个人助手
+ *   - Decide whether this is the user's first launch of 向日葵助手
  *   - Auto-create a default `.env` from `env.example` if one is missing
  *   - Report whether a Gemini API key is configured (the only required key)
  *   - Persist a "first-run completed" sentinel so we don't nag on every launch
@@ -166,7 +166,7 @@ class FirstRunManager {
       } catch (_) { /* try next */ }
     }
     return [
-      '# windows个人助手 configuration',
+      '# 向日葵助手 configuration',
       '# Add your Google Gemini API key below — the app picks it up immediately.',
       '# Get a key from: https://aistudio.google.com/',
       '',

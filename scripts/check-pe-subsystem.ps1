@@ -26,9 +26,9 @@ function Get-PESubsystem([string]$path) {
 }
 
 $targets = @(
-  "D:\code\笔试软件\OpenCluely\dist\windows个人助手-Portable-1.0.0-x64.exe",
-  "D:\code\笔试软件\OpenCluely\dist\windows个人助手-Setup-1.0.0-x64.exe",
-  "D:\code\笔试软件\OpenCluely\dist\win-unpacked\windows个人助手.exe"
+  "D:\code\笔试软件\OpenCluely\dist\向日葵助手-Portable-1.0.0-x64.exe",
+  "D:\code\笔试软件\OpenCluely\dist\向日葵助手-Setup-1.0.0-x64.exe",
+  "D:\code\笔试软件\OpenCluely\dist\win-unpacked\向日葵助手.exe"
 )
 foreach ($t in $targets) {
   Write-Host ((Split-Path $t -Leaf).PadRight(45) + " -> " + (Get-PESubsystem $t))

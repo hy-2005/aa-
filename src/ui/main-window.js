@@ -1185,7 +1185,7 @@ class MainWindowUI {
             document.body.removeChild(menu);
         });
 
-        const quitOption = this.createMenuItem('退出 windows个人助手', 'fa-power-off', () => {
+        const quitOption = this.createMenuItem('退出 向日葵助手', 'fa-power-off', () => {
             if (window.electronAPI && window.electronAPI.quit) {
                 window.electronAPI.quit();
             }

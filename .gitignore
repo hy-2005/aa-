@@ -10,4 +10,5 @@ bin/
 .playwright-mcp/
 .superpowers/
 .github
-CLAUDE.md
+/CLAUDE.md
+/AGENTS.md

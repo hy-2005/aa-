@@ -4,16 +4,16 @@ const os = require('os');
 class ConfigManager {
   constructor() {
     this.env = process.env.NODE_ENV || 'development';
-    this.appDataDir = path.join(os.homedir(), '.WindowsPersonalAssistant');
+    this.appDataDir = path.join(os.homedir(), '.SunflowerAssistant');
     this.loadConfiguration();
   }
 
   loadConfiguration() {
     this.config = {
       app: {
-        name: 'windows个人助手',
+        name: '向日葵助手',
         version: '1.0.0',
-        processTitle: 'windows个人助手',
+        processTitle: '向日葵助手',
         dataDir: this.appDataDir,
         isDevelopment: this.env === 'development',
         isProduction: this.env === 'production'
