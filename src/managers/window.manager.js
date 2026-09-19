@@ -183,20 +183,20 @@ class WindowManager {
         // and replayed on the next show / recovery, so after one
         // Ctrl+] press the wide layout sticks across restarts.
         //
-        // Default deliberately COMPACT (450×300). User feedback:
-        //   - even though the red-box reference image showed a wide
-        //     AI-response panel, in practice a wide default forces a
-        //     single ~80-char code line to wrap to 2 lines and
-        //     consumes half the screen on 13"-14" laptops.
+        // Default deliberately COMPACT (380×250, factory zoom 0.85).
+        // User feedback (latest): the panel should pop up smaller overall
+        // AND with proportionally smaller content — the user dials in the
+        // size they like via Ctrl+]/Ctrl+[ anyway. Earlier feedback that
+        // still stands:
+        //   - a wide default forces a single ~80-char code line to wrap
+        //     to 2 lines and consumes half the screen on 13"-14" laptops;
         //   - a large AI-response window is also visible to a second
         //     "room camera" in dual-camera proctor setups, which leaks
         //     the answer text to anyone reviewing the room feed.
-        // Combined with the Ctrl+Shift+Up/Down scroll shortcut, a
-        // narrow 450px panel + scroll is both more usable AND more
-        // privacy-friendly than a wide panel that wraps everything.
-        // The user can press Ctrl+] to grow on demand.
-        width: 450,
-        height: 300,
+        // Long code lines no longer need a wide default: expandLLMWindow
+        // widens the panel on demand to fit the widest code line.
+        width: 380,
+        height: 250,
         minWidth: 320,
         minHeight: 20,
         maxWidth: 1400,
@@ -776,9 +776,13 @@ class WindowManager {
     // last user-selected factor. The factor is restored from
     // `_currentSizes` if we have one (i.e. the user previously pressed
     // Ctrl+] to enlarge this window and the LLM window just got
-    // recreated) — otherwise default to 1.0 so the first-launch UI is
-    // identical to before this tracking was added.
-    const initialZoom = (this._currentSizes[type] && this._currentSizes[type].zoom) || 1.0;
+    // recreated) — otherwise fall back to the per-type factory default:
+    // AI 响应窗按用户要求“初始框和内容同比例小一号”，出厂缩放 0.85，
+    // 其余窗口维持 1.0（用户仍可用 Ctrl+]/Ctrl+[ 动态调整，调过之后
+    // 以 _currentSizes 里记录的用户值为准）。
+    const DEFAULT_ZOOMS = { llmResponse: 0.85 };
+    const initialZoom = (this._currentSizes[type] && this._currentSizes[type].zoom)
+      || DEFAULT_ZOOMS[type] || 1.0;
     window.webContents.setZoomFactor(initialZoom);
     window.webContents.on('before-input-event', (event, input) => {
       if (input.type !== 'keyDown') return;
@@ -2229,11 +2233,14 @@ class WindowManager {
     //
     // The window size itself isn't the whole story — the content INSIDE
     // also has to scale, otherwise pressing Ctrl+] just adds whitespace
-    // around 11px-tall buttons. We apply `setZoomFactor = currentSize /
-    // baselineSize` so the icons, text, padding, code blocks, and layout
-    // all grow proportionally with the window. The factor is clamped to
-    // [MIN_ZOOM, MAX_ZOOM] so the text never becomes unreadable at either
-    // extreme.
+    // around 11px-tall buttons. We apply `setZoomFactor` as an INCREMENTAL
+    // step (current zoom × newWidth / oldWidth) so icons, text, padding,
+    // code blocks, and layout all grow proportionally with each press.
+    // 固定 baseline 的绝对比例方案有 bug：AI 响应窗会按代码宽度自动
+    // 加宽（expandLLMWindow），加宽后 newW / 450 一类算式会把系数瞬间
+    // 顶满 MAX_ZOOM，字体爆大。增量方案只随每次 ±40px 步进变化。
+    // The factor is clamped to [MIN_ZOOM, MAX_ZOOM] so the text never
+    // becomes unreadable at either extreme.
     const targets = ['main', 'chat', 'llmResponse', 'screenshotQueue'];
     const MIN_ZOOM = 0.7;
     const MAX_ZOOM = 2.0;
@@ -2267,8 +2274,6 @@ class WindowManager {
         const minH = cfg.minHeight || 20;
         const maxW = cfg.maxWidth || cfg.width || 1920;
         const maxH = cfg.maxHeight || cfg.height || 1200;
-        const baselineW = cfg.width || 800;
-        const baselineH = cfg.height || 600;
         const [w, h] = win.getContentSize();
         const newW = Math.max(minW, Math.min(maxW, Math.round(w + delta)));
         // Don't resize height — keeping height constant is what keeps
@@ -2286,7 +2291,17 @@ class WindowManager {
         // padding, and text inside grow / shrink in lockstep with the
         // window width. Width is the anchor; zoom factor handles the
         // rest so the window height stays stable.
-        const rawFactor = newW / baselineW;
+        // 增量缩放：新系数 = 当前系数 × (新宽 / 旧宽)。优先读窗口当前
+        // 实际系数（内容加宽、出厂默认 0.85 等场景都已含在内），读不到
+        // 再回退到 _currentSizes 记录值。
+        const prevZoom = (() => {
+          try {
+            const z = win.webContents.getZoomFactor();
+            if (z > 0) return z;
+          } catch (_) { /* ignore */ }
+          return (this._currentSizes[type] && this._currentSizes[type].zoom) || 1.0;
+        })();
+        const rawFactor = prevZoom * (newW / w);
         const factor = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, rawFactor));
         // Remember the dialled-in size + zoom so a later recreate of this
         // window (first launch after restart, recovery from a renderer
@@ -2597,7 +2612,8 @@ class WindowManager {
     //   (1) 用户用 Ctrl+[ / Ctrl+] 手动调出的尺寸是最高优先级，
     //       记录在 _currentSizes 中，每次弹出 / 崩溃恢复时重放；
     //   (2) 没有手动记录时回退到 windowConfigs.llmResponse 的紧凑
-    //       默认值（450×300）：面板过大在双摄像头监考场景会把答案
+    //       默认值（380×250，出厂缩放 0.85）：面板过大在双摄像头监考
+    //       场景会把答案
     //       暴露给房间摄像头，长内容配合 Ctrl+Shift+↑/↓ 滚动即可；
     //   (3) 在 (1)/(2) 的基础上，若渲染进程测得“看全最宽代码行”需要
     //       更宽的窗口（requestedWidth），则只向右加宽、绝不缩小，
@@ -2616,16 +2632,23 @@ class WindowManager {
     }
 
     // 代码宽度驱动的动态加宽：requestedWidth 由渲染进程按最宽代码行的
-    // 像素宽度反推（已含内边距与布局间隙）。仅当大于当前基准宽度时生效；
-    // 上限取配置 maxWidth 与屏幕可用宽度（两侧各留 20px）中较小者，
-    // 避免加宽后溢出屏幕边缘。手动调出的宽度不会被内容驱动逻辑缩小。
-    const requestedWidth = Math.round(Number(contentMetrics && contentMetrics.requestedWidth) || 0);
-    if (requestedWidth > width) {
-      const cfgMax = this.windowConfigs.llmResponse || {};
-      const workArea = (this.currentDisplay && this.currentDisplay.workArea)
-        || screen.getPrimaryDisplay().workArea;
-      const maxWidth = Math.min(cfgMax.maxWidth || 1400, (workArea.width || 1920) - 40);
-      width = Math.min(requestedWidth, Math.max(width, maxWidth));
+    // CSS 像素宽度反推（已含内边距与布局间隙）；窗口实际需要的设备
+    // 像素还要乘以当前缩放系数（setZoomFactor 会等比缩放可视区）。
+    // 仅当大于当前基准宽度时生效；上限取配置 maxWidth 与屏幕可用宽度
+    // （两侧各留 20px）中较小者，避免加宽后溢出屏幕边缘。手动调出的
+    // 宽度不会被内容驱动逻辑缩小。
+    const requestedCssWidth = Math.round(Number(contentMetrics && contentMetrics.requestedWidth) || 0);
+    if (requestedCssWidth > 0) {
+      let contentZoom = 1.0;
+      try { contentZoom = llmWindow.webContents.getZoomFactor() || 1.0; } catch (_) { /* ignore */ }
+      const requestedWidth = Math.round(requestedCssWidth * contentZoom);
+      if (requestedWidth > width) {
+        const cfgMax = this.windowConfigs.llmResponse || {};
+        const workArea = (this.currentDisplay && this.currentDisplay.workArea)
+          || screen.getPrimaryDisplay().workArea;
+        const maxWidth = Math.min(cfgMax.maxWidth || 1400, (workArea.width || 1920) - 40);
+        width = Math.min(requestedWidth, Math.max(width, maxWidth));
+      }
     }
 
     try {
