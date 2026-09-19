@@ -18,17 +18,23 @@ class OpenAIAdapter {
   }
 
   initialize() {
+    this.initializationError = null;
     if (!this.apiKey) {
       logger.warn('OpenAI API key not configured');
       this.isInitialized = false;
       return false;
     }
     try {
-      this.client = new OpenAI({ apiKey: this.apiKey });
+      this.client = new OpenAI({
+        apiKey: this.apiKey,
+        // Speech SDK polyfills add browser globals in the main process.
+        dangerouslyAllowBrowser: !!process.versions.node && process.type !== 'renderer'
+      });
       this.isInitialized = true;
       logger.info('OpenAI client initialized', { model: this.model });
       return true;
     } catch (e) {
+      this.initializationError = e;
       logger.error('Failed to initialize OpenAI client', { error: e.message });
       this.isInitialized = false;
       return false;
@@ -41,7 +47,11 @@ class OpenAIAdapter {
   }
 
   _assertReady() {
-    if (!this.isInitialized) throw new NoApiKeyError(this.id);
+    if (!this.isInitialized) {
+      if (this.initializationError) throw this.initializationError;
+      if (this.apiKey) throw new Error('OpenAI 配置已读取，但模型客户端未初始化，请检查模型配置。');
+      throw new NoApiKeyError(this.id);
+    }
   }
 
   _buildMessages(text, activeSkill, sessionMemory, programmingLanguage) {

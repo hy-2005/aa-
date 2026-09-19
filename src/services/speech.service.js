@@ -351,9 +351,10 @@ if (typeof window === 'undefined') {
   global.navigator = global.window.navigator;
   global.AudioContext = global.window.AudioContext;
   global.webkitAudioContext = global.window.webkitAudioContext;
-  global.URL = global.window.URL;
-  global.Blob = global.window.Blob;
-  global.File = global.window.File;
+  // Keep native HTTP primitives; audio stubs break model URL validation.
+  global.URL = global.window.URL = global.URL || global.window.URL;
+  global.Blob = global.window.Blob = global.Blob || global.window.Blob;
+  global.File = global.window.File = global.File || global.window.File;
 
   if (!global.performance) {
     global.performance = {

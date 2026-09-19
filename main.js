@@ -101,7 +101,7 @@ const FirstRunManager = require("./src/core/first-run");
 const providersStore = require("./src/services/llm/providers.store");
 const llmRouter = require("./src/services/llm/llm-router");
 
-const llmProvidersState = providersStore.init({ userDataDir: app.getPath("userData") });
+const llmProvidersState = providersStore.init({ userDataDir: app.getPath("userData"), envPath: ENV_PATH });
 {
   const active = llmProvidersState.providers[llmProvidersState.activeProvider] || {};
   // Mirror active provider fields to process.env so legacy config.getApiKey() calls keep working.
@@ -1979,9 +1979,10 @@ class ApplicationController {
       // aborted the entire save, silently discarding every key the user had
       // entered and leaving llm-providers.json unwritten, which made the
       // onboarding wizard reappear on every launch.)
-      if (settings.providers && typeof settings.providers === 'object') {
-        const next = providersStore.load();
-        const incoming = settings.providers;
+      if ((settings.providers && typeof settings.providers === 'object') || settings.activeProvider) {
+        // Do not mutate live settings before the atomic disk write succeeds.
+        const next = JSON.parse(JSON.stringify(providersStore.load()));
+        const incoming = settings.providers || {};
         for (const pid of ['gemini', 'openai', 'openai-compatible']) {
           if (incoming[pid]) {
             next.providers[pid] = {
@@ -2044,12 +2045,13 @@ class ApplicationController {
         // 重新初始化 router 走新 provider
         try { llmRouter.reload(); logger.info("[SAVE] router reloaded", { activeProvider: llmRouter.getActiveProviderId(), at: saveAt() }); }
         catch (e) { logger.warn('Failed to reload LLM router', { error: e.message }); }
-        // 触发 LLMService 内部状态重置（兼容老 updateApiKey 调用路径）
-        try { llmService.initializeClient(); logger.info("[SAVE] client initialized", { at: saveAt() }); } catch (_) {}
         logger.info('LLM provider config updated', { activeProvider: next.activeProvider, providerWarning });
         if (providerWarning) {
           // Saved, but the requested switch was rejected — surface to the UI.
           return { success: false, saved: true, activeProvider: next.activeProvider, error: providerWarning };
+        }
+        if (!llmService.isInitialized) {
+          return { success: false, saved: true, error: '模型配置已保存，但客户端初始化失败，请查看应用日志或重新检查服务商配置。' };
         }
       }
 

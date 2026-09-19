@@ -18,6 +18,7 @@ class OpenAICompatibleAdapter {
   }
 
   initialize() {
+    this.initializationError = null;
     if (!this.apiKey) {
       logger.warn('OpenAI-compatible API key not configured');
       this.isInitialized = false;
@@ -36,7 +37,9 @@ class OpenAICompatibleAdapter {
     try {
       this.client = new OpenAI({
         apiKey: this.apiKey,
-        baseURL: this.baseUrl
+        baseURL: this.baseUrl,
+        // Keys stay in the main process; Azure globals confuse SDK detection.
+        dangerouslyAllowBrowser: !!process.versions.node && process.type !== 'renderer'
       });
       this.isInitialized = true;
       logger.info('OpenAI-compatible client initialized', {
@@ -44,6 +47,7 @@ class OpenAICompatibleAdapter {
       });
       return true;
     } catch (e) {
+      this.initializationError = e;
       logger.error('Failed to initialize OpenAI-compatible client', { error: e.message });
       this.isInitialized = false;
       return false;
@@ -56,7 +60,11 @@ class OpenAICompatibleAdapter {
   }
 
   _assertReady() {
-    if (!this.isInitialized) throw new NoApiKeyError(this.id);
+    if (!this.isInitialized) {
+      if (this.initializationError) throw this.initializationError;
+      if (this.apiKey) throw new Error('兼容服务配置已读取，但模型客户端未初始化，请检查模型与接口地址。');
+      throw new NoApiKeyError(this.id);
+    }
   }
 
   _buildMessages(text, activeSkill, sessionMemory, programmingLanguage) {
