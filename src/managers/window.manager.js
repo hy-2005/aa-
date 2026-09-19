@@ -805,6 +805,20 @@ class WindowManager {
         event.preventDefault();
         window.webContents.setZoomFactor(resolveZoom());
       }
+      // 引导页是“输入即生效”向导：API 密钥、BaseURL、Azure 凭据等
+      // 都只活在内存的 state 对象里，刷新会清空用户在 apikey/speech 等
+      // 步骤已经填写的内容，迫使用户从头再来。F5、Ctrl+R、Cmd+R、Shift+F5
+      // （硬刷新）、Ctrl+Shift+R（绕过缓存硬刷新）在这里全部吞掉，让
+      // 键盘层面就刷不掉。其他窗口不受影响。
+      if (type === 'onboarding' && (
+        key === 'f5' ||
+        (input.control && key === 'r') ||
+        (input.meta && key === 'r') ||
+        (input.shift && key === 'f5') ||
+        (input.control && input.shift && key === 'r')
+      )) {
+        event.preventDefault();
+      }
     });
 
     // External links (GitHub, the website, Google AI Studio, etc.) must open in
@@ -818,6 +832,14 @@ class WindowManager {
       return { action: 'deny' };
     });
     window.webContents.on('will-navigate', (event, url) => {
+      // 引导页同 URL 的 will-navigate 必然是某种“重载”——本地 file://
+      // 不会被上面那段 https 正则拦下，必须在这里按“目标 URL 等于当前
+      // URL”额外兜底。覆盖：DevTools 工具栏 Reload、右键 Reload、
+      // 主进程 webContents.reload() 等所有走导航通道的刷新路径。
+      if (type === 'onboarding' && url === window.webContents.getURL()) {
+        event.preventDefault();
+        return;
+      }
       if (/^https?:\/\//i.test(url) && url !== window.webContents.getURL()) {
         event.preventDefault();
         shell.openExternal(url);
