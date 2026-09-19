@@ -2593,22 +2593,16 @@ class WindowManager {
     const llmWindow = this.windows.get('llmResponse');
     if (!llmWindow || this.isScreenBeingShared) return;
 
-    // Sizing policy (privacy / dual-camera first):
-    //   (1) If the user has previously dialled in a size via Ctrl+[/]
-    //       — that's the SOURCE OF TRUTH. Their Ctrl+]/Ctrl+[ history
-    //       is replayed here so a "wide response" they manually set up
-    //       sticks across sessions.
-    //   (2) Otherwise, fall back to the COMPACT default from
-    //       windowConfigs.llmResponse (450×300). We deliberately do
-    //       NOT call calculateOptimalWindowSize(contentMetrics) here
-    //       anymore — the previous content-driven sizing grew the
-    //       window to 1280×620 (or 95% of screen width) whenever the
-    //       LLM returned a verbose answer, and on dual-camera
-    //       proctoring setups the AI's response text was visible to the
-    //       room camera the whole time it was on screen. Combined
-    //       with the Ctrl+Shift+Up/Down scroll shortcut, a compact
-    //       default + scroll is both more usable AND keeps the panel
-    //       small enough not to dominate the user's monitor.
+    // 尺寸策略（用户手动偏好优先，内容只负责“加宽”）：
+    //   (1) 用户用 Ctrl+[ / Ctrl+] 手动调出的尺寸是最高优先级，
+    //       记录在 _currentSizes 中，每次弹出 / 崩溃恢复时重放；
+    //   (2) 没有手动记录时回退到 windowConfigs.llmResponse 的紧凑
+    //       默认值（450×300）：面板过大在双摄像头监考场景会把答案
+    //       暴露给房间摄像头，长内容配合 Ctrl+Shift+↑/↓ 滚动即可；
+    //   (3) 在 (1)/(2) 的基础上，若渲染进程测得“看全最宽代码行”需要
+    //       更宽的窗口（requestedWidth），则只向右加宽、绝不缩小，
+    //       极端超宽的行仍有横向滚动兜底。早期版本的内容驱动算法会把
+    //       窗口撑到 1280×620，现改为“只调宽度、只增不减”。
     const lastSize = this._currentSizes.llmResponse;
     let width;
     let height;
@@ -2619,6 +2613,19 @@ class WindowManager {
       const cfg = this.windowConfigs.llmResponse || {};
       width = cfg.width || 450;
       height = cfg.height || 300;
+    }
+
+    // 代码宽度驱动的动态加宽：requestedWidth 由渲染进程按最宽代码行的
+    // 像素宽度反推（已含内边距与布局间隙）。仅当大于当前基准宽度时生效；
+    // 上限取配置 maxWidth 与屏幕可用宽度（两侧各留 20px）中较小者，
+    // 避免加宽后溢出屏幕边缘。手动调出的宽度不会被内容驱动逻辑缩小。
+    const requestedWidth = Math.round(Number(contentMetrics && contentMetrics.requestedWidth) || 0);
+    if (requestedWidth > width) {
+      const cfgMax = this.windowConfigs.llmResponse || {};
+      const workArea = (this.currentDisplay && this.currentDisplay.workArea)
+        || screen.getPrimaryDisplay().workArea;
+      const maxWidth = Math.min(cfgMax.maxWidth || 1400, (workArea.width || 1920) - 40);
+      width = Math.min(requestedWidth, Math.max(width, maxWidth));
     }
 
     try {
@@ -2640,7 +2647,8 @@ class WindowManager {
     logger.debug('LLM window resized', {
       newSize: `${width}x${height}`,
       userPreferredSize: lastSize ? `${lastSize.w}x${lastSize.h}` : null,
-      basedOnContent: !lastSize && !!contentMetrics
+      basedOnContent: !lastSize && !!contentMetrics,
+      requestedWidth
     });
   }
 

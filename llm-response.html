@@ -704,6 +704,39 @@
             };
         }
 
+        // 测量当前 DOM 中最宽代码行的像素宽度。必须在内容渲染并高亮完成后调用：
+        // 拆分布局下 .code-content 是横向滚动容器，整页布局下 .markdown-content pre
+        // 自带 overflow-x:auto，二者的 scrollWidth 即未换行代码的完整渲染宽度。
+        function measureMaxCodeLineWidth() {
+            let max = 0;
+            document.querySelectorAll('.code-content, .markdown-content pre').forEach((el) => {
+                const w = Math.ceil(el.scrollWidth || 0);
+                if (w > max) max = w;
+            });
+            return max;
+        }
+
+        // 由“看全最宽代码行”所需像素反推整个窗口需要的宽度。两种布局的水平
+        // 固定开销不同：
+        //   - 拆分布局：代码面板占 3/5（grid 为 2fr 3fr），含 .code-content 与
+        //     .panel-content 各 1rem 左右内边距、0.75rem 列间距；
+        //   - 整页布局：单面板，pre 与 .full-content-inner 各 1rem 左右内边距。
+        // 返回 0 表示本次没有代码块，主进程沿用用户偏好宽度，不做内容驱动加宽。
+        function computeRequestedWidth(codePx) {
+            if (!codePx || codePx <= 0) return 0;
+            const PANEL_PAD = 32; // .panel-content 左右内边距合计（2rem）
+            const CODE_PAD = 32;  // .code-content / pre 左右内边距合计（2rem）
+            const GAP = 12;       // split-layout 的 0.75rem 列间距
+            const MARGIN = 24;    // 字体取整 + 滚动条余量，防止最后一个字符被裁
+            if (hasCode) {
+                // 代码面板宽度 = 最宽行 + 两层内边距 + 余量；它占窗口（扣除
+                // 间隙）的 3/5，故乘 5/3 反推窗口总宽
+                const codePanelWidth = codePx + CODE_PAD + PANEL_PAD + MARGIN;
+                return Math.round(GAP + (codePanelWidth * 5) / 3);
+            }
+            return codePx + CODE_PAD + PANEL_PAD + MARGIN;
+        }
+
         function displayResponse(data) {
             // Show content
             const responseElement = document.getElementById('response-content');
@@ -739,9 +772,16 @@
                 displayFullLayout(response);
             }
             
-            // Request dynamic window sizing based on content
+            // 请求按内容动态调整窗口：延迟 200ms 等 DOM 与 Prism 高亮完成后再
+            // 测量最宽代码行的像素宽度，连同字符级指标一起上报主进程，
+            // 由主进程把窗口加宽到“能看全最宽代码行”（只加宽、不缩小）。
             setTimeout(() => {
-                window.electronAPI.resizeLlmWindowForContent(contentMetrics)
+                const metrics = {
+                    ...contentMetrics,
+                    maxCodeLineWidth: measureMaxCodeLineWidth()
+                };
+                metrics.requestedWidth = computeRequestedWidth(metrics.maxCodeLineWidth);
+                window.electronAPI.resizeLlmWindowForContent(metrics)
                     .then(result => {
                     })
                     .catch(error => {
