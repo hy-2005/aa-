@@ -1,4 +1,4 @@
-const { BrowserWindow, screen, shell } = require('electron');
+const { app, BrowserWindow, screen, shell } = require('electron');
 const path = require('path');
 const { execFile } = require('child_process');
 const logger = require('../core/logger').createServiceLogger('WINDOW');
@@ -2670,6 +2670,21 @@ class WindowManager {
       onboardingWindow = await this.createWindow('onboarding');
       this.windows.set('onboarding', onboardingWindow);
 
+      // 用户点引导页右上角的 X：首跑还没完成，其它窗口全部刻意隐藏着，
+      // 只销毁这一个窗口会让应用变成看不见的"无头"进程继续驻留 —— 用户
+      // 以为退出了，再双击 exe 又触发二次启动，全部悬浮窗闪现（用户日志
+      // 里 17 次二次启动就是这么来的）。这里让"首跑期间关引导页"等价于
+      // "退出应用"。向导正常完成走 closeOnboarding()，它会先清掉
+      // _onboardingCloseQuits 标记再关窗，不会误伤。
+      this._onboardingCloseQuits = true;
+      onboardingWindow.on('close', (e) => {
+        if (!this._onboardingCloseQuits) return;
+        this._onboardingCloseQuits = false;
+        try { e.preventDefault(); } catch (_) { /* ignore */ }
+        logger.info('Onboarding closed by user during first-run — quitting app');
+        app.quit();
+      });
+
       // Once the wizard renderer signals it's ready, send it the
       // current first-run status so it can pre-populate correctly.
       onboardingWindow.webContents.once('did-finish-load', () => {
@@ -2692,6 +2707,8 @@ class WindowManager {
   }
 
   closeOnboarding() {
+    // 向导正常完成的收尾：先清"关窗即退出"标记再关，避免误退应用。
+    this._onboardingCloseQuits = false;
     const onboardingWindow = this.windows.get('onboarding');
     if (onboardingWindow && !onboardingWindow.isDestroyed()) {
       onboardingWindow.close();

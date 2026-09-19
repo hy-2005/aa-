@@ -267,6 +267,16 @@ class ApplicationController {
 
     const focusExistingWindows = () => {
       try {
+        // 首跑引导期间绝不能走 showAllWindows()：主悬浮窗/聊天窗/AI 响应窗
+        // 此时全部刻意隐藏着，二次启动会把它们整屏闪现出来并抢走焦点，
+        // 用户正对着引导页打字时感知就是"窗口一直闪、输入被打断"
+        // （2026-09-19 用户日志：17 次二次启动全部触发 All windows shown）。
+        // 正确行为：把引导页重新拉到前台即可。
+        if (this.isFirstRun || windowManager.getWindow("onboarding")) {
+          windowManager.showOnboarding();
+          return;
+        }
+
         const mainWindow = windowManager.getWindow("main");
         if (mainWindow) {
           if (mainWindow.isMinimized && mainWindow.isMinimized()) {
@@ -906,10 +916,33 @@ class ApplicationController {
       }
     });
 
+    // ── 引导页草稿持久化 ──────────────────────────────────────────────
+    // 背景（真实用户日志 2026-09-19 实锤）：应用当天被 quit 36 次、重启 27 次，
+    // 引导页的 state 只存在渲染进程内存里，进程一死用户已敲的 API key /
+    // BaseURL 全部丢失，重启后只能从头再输 —— 用户感知就是"输入一直被
+    // 刷新掉"。这里把向导进度以草稿形式防抖落盘：主进程崩溃、被快捷键
+    // 退出、任务管理器结束进程，任何一种重启路径都能把已输入的内容
+    // 原样回填。草稿与正式配置（llm-providers.json）分离，完成引导时删除。
+    ipcMain.handle("save-wizard-draft", (_event, draft) => {
+      try {
+        if (!draft || typeof draft !== "object") {
+          return { success: false, error: "invalid draft" };
+        }
+        const draftPath = this.getWizardDraftPath();
+        fs.writeFileSync(draftPath, JSON.stringify(draft, null, 2), { encoding: "utf8", mode: 0o600 });
+        return { success: true };
+      } catch (e) {
+        logger.warn("Failed to save wizard draft", { error: e.message });
+        return { success: false, error: e.message };
+      }
+    });
+
     ipcMain.handle("complete-first-run", async () => {
       try {
         this.firstRunManager.markCompleted();
         this.isFirstRun = false;
+        // 引导完成：草稿使命结束，删除避免下次启动把旧进度当成新输入回填。
+        try { fs.unlinkSync(this.getWizardDraftPath()); } catch (_) { /* 文件不存在即可 */ }
         // Reinitialize speech service with the latest persisted settings
         // so the mic button reflects the provider/command set during onboarding.
         speechService.initializeClient();
@@ -1905,6 +1938,21 @@ class ApplicationController {
     return this._whisperInstaller;
   }
 
+  getWizardDraftPath() {
+    return path.join(app.getPath("userData"), "wizard-draft.json");
+  }
+
+  // 读取引导页草稿；不存在或损坏时返回 null，调用方按"无草稿"处理。
+  loadWizardDraft() {
+    try {
+      const raw = fs.readFileSync(this.getWizardDraftPath(), "utf8");
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   getSettings() {
     const providerState = providersStore.load();
     const providers = providerState.providers || {};
@@ -1916,6 +1964,9 @@ class ApplicationController {
         openai: providers.openai || { apiKey: "", model: "gpt-4o-mini" },
         "openai-compatible": providers["openai-compatible"] || { apiKey: "", model: "", baseUrl: "" }
       },
+      // 引导页草稿：比 providers 更"新"（用户敲到一半的输入），向导
+      // boot 时优先用它回填，避免应用重启后丢输入。
+      wizardDraft: this.loadWizardDraft(),
       // Legacy bridge fields (existing UI may still read these)
       geminiKey: process.env.GEMINI_API_KEY || "",
 

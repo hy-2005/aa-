@@ -290,6 +290,28 @@
       if (inputs.baseUrl) inputs.baseUrl.value = p.baseUrl || '';
     });
   }
+
+  // ── 草稿防抖落盘 ──────────────────────────────────────────────────
+  // 用户每敲一个字符都同步到 state；这里再以 600ms 防抖把 state 持久化成
+  // 草稿（wizard-draft.json）。应用无论因为什么原因重启（被全局快捷键
+  // 退出、崩溃、任务管理器结束进程），下次引导页都会把草稿原样回填，
+  // 已输入的密钥不再丢失 —— 这是"输入一直被刷新掉"的根治手段。
+  let draftSaveTimer = null;
+  function scheduleDraftSave() {
+    if (!window.electronAPI || !window.electronAPI.saveWizardDraft) return;
+    if (draftSaveTimer) clearTimeout(draftSaveTimer);
+    draftSaveTimer = setTimeout(() => {
+      draftSaveTimer = null;
+      // 只序列化需要的字段，避免把运行时标志（whisperDetected 等）也写进去
+      window.electronAPI.saveWizardDraft({
+        activeProvider: state.activeProvider,
+        providers: state.providers,
+        speechProvider: state.speechProvider,
+        azureKey: state.azureKey,
+        azureRegion: state.azureRegion,
+      }).catch(() => { /* 草稿失败不打扰用户，正式保存仍走 saveSettings */ });
+    }, 600);
+  }
   // 表单项默认就是可用的 —— 不要在 IIFE 顶层先禁用、再依赖 getSettings
   // 的异步回调里启用。早期版本在 boot 时把所有 input 设 disabled=true，
   // 然后只在 window.electronAPI.getSettings().then(s => ...) 回调里 enable；
@@ -309,6 +331,7 @@
       keyStatus.classList.remove('success');
     }
     refreshProviderVisibility();
+    scheduleDraftSave();
   });
 
   // Per-field input listeners (mirror to state, manage status pill on key entry)
@@ -319,6 +342,9 @@
       if (!el) return;
       el.addEventListener('input', () => {
         inputsToState();
+        // 每次输入都排一次防抖草稿保存：应用中途退出也能把已敲的
+        // 内容在下次启动时回填回来
+        scheduleDraftSave();
         // Only flash the status pill on API-key edits of the active provider
         if (field === 'apiKey' && pid === state.activeProvider) {
           if (!el.value.trim()) {
@@ -366,11 +392,12 @@
         state.azureKey = '';
         state.azureRegion = '';
       }
+      scheduleDraftSave();
     });
   });
 
-  $('#azureKey').addEventListener('input', (e) => { state.azureKey = e.target.value.trim(); });
-  $('#azureRegion').addEventListener('input', (e) => { state.azureRegion = e.target.value.trim(); });
+  $('#azureKey').addEventListener('input', (e) => { state.azureKey = e.target.value.trim(); scheduleDraftSave(); });
+  $('#azureRegion').addEventListener('input', (e) => { state.azureRegion = e.target.value.trim(); scheduleDraftSave(); });
 
   // ── Wire up: Whisper screen ───────────────────────────────────────
   const installLog = $('#installLog');
@@ -859,6 +886,34 @@
       if (s.activeProvider && state.providers[s.activeProvider]) {
         state.activeProvider = s.activeProvider;
         providerSelect.value = state.activeProvider;
+      }
+      // 草稿回填：草稿是用户敲到一半的最新输入（比 providers json 新），
+      // 存在草稿时覆盖上面的合并结果 —— 应用中途退出/重启后，已输入的
+      // API key、模型、BaseURL、Azure 凭据与语音步骤的选择全部原样恢复。
+      const draft = s.wizardDraft;
+      if (draft && typeof draft === 'object') {
+        Object.keys(state.providers).forEach((pid) => {
+          if (draft.providers && draft.providers[pid]) {
+            state.providers[pid] = { ...state.providers[pid], ...draft.providers[pid] };
+          }
+        });
+        if (draft.activeProvider && state.providers[draft.activeProvider]) {
+          state.activeProvider = draft.activeProvider;
+          providerSelect.value = state.activeProvider;
+        }
+        if (draft.speechProvider) {
+          state.speechProvider = draft.speechProvider;
+          state.azureKey = draft.azureKey || '';
+          state.azureRegion = draft.azureRegion || '';
+          const card = document.querySelector(
+            `#speechChoices .choice-card[data-value="${draft.speechProvider}"]`
+          );
+          if (card) card.classList.add('selected');
+          const azurePanel = $('#azurePanel');
+          if (azurePanel) {
+            azurePanel.style.display = draft.speechProvider === 'azure' ? 'block' : 'none';
+          }
+        }
       }
       stateToInputs();
       state.providerSettingsLoaded = true;

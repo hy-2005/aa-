@@ -14,7 +14,9 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     const providerElements = [...Object.keys(providerFields), 'activeProvider']
         .map((id) => document.getElementById(id)).filter(Boolean);
-    providerElements.forEach((input) => { input.disabled = true; });
+    // 表单项默认可用，不再"先禁用、等 load-settings 回调再启用"：
+    // 该回调依赖 IPC（window.api.receive / getSettings），任何一环异常
+    // 时输入框会永远锁死（与 onboarding.js 修过的同款反模式）。
 
     // Get DOM elements
     const closeButton = document.getElementById('closeButton');
@@ -195,7 +197,6 @@ document.addEventListener('DOMContentLoaded', () => {
         _origLoadSettings(settings);
         populateProviderFields(settings);
         settingsLoaded = true;
-        providerElements.forEach((input) => { input.disabled = false; });
     };
 
     // Load settings when window opens

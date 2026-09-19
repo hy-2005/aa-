@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // First-run onboarding
   getFirstRunStatus: () => ipcRenderer.invoke('get-first-run-status'),
   completeFirstRun: () => ipcRenderer.invoke('complete-first-run'),
+  // 引导页进度草稿：防抖落盘，应用重启后回填，避免已输入的密钥丢失
+  saveWizardDraft: (draft) => ipcRenderer.invoke('save-wizard-draft', draft),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   closeOnboarding: () => ipcRenderer.invoke('close-onboarding'),
   detectWhisper: () => ipcRenderer.invoke('detect-whisper'),
